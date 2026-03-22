@@ -18,9 +18,12 @@ export interface IWalletSummary {
 export interface ITransaction {
     id: string;
     userId: string;
+    userDisplayName?: string;
     walletId: string;
     amount: number;
     category: string;
+    categoryName?: string;
+    budgetName?: string;
     description?: string;
     type: TypeTransactionKind;
     timestamp: number;
@@ -61,4 +64,24 @@ export interface IPaginatedTransactions {
     limit: number;
     total: number;
     hasMore: boolean;
+}
+
+export interface ISpendingTrendPoint {
+    day: number;
+    timestamp: number;
+    expense: number;
+    income: number;
+}
+
+export interface ISpendingTrendSummary {
+    month: number;
+    year: number;
+    daysInMonth: number;
+    lastDay: number;
+    totalIncome: number;
+    savingsGoal: number;
+    monthlySpendable: number;
+    averageDailyBudget: number;
+    maxValue: number;
+    points: ISpendingTrendPoint[];
 }

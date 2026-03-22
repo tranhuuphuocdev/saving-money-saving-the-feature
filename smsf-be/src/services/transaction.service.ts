@@ -1,6 +1,7 @@
 import {
     ICreateTransactionPayload,
     IPaginatedTransactions,
+    ISpendingTrendSummary,
     ITransaction,
     ITransactionQueryParams,
     IUpdateTransactionPayload,
@@ -11,6 +12,7 @@ import {
     deleteTransaction,
     getTransactionById,
     getTransactionsByUserAndMonth,
+    getSpendingTrendAggregationByMonth,
     queryTransactionsByUser,
     updateTransaction,
 } from "../repositories/transaction.repository";
@@ -18,7 +20,37 @@ import {
     applyTransactionEffectToWallet,
     findWalletById,
 } from "./wallet.service";
+import { getCategoryById } from "./category.service";
+import { getSavingBudgetByUser, getSavingGoalByUser } from "./budget.service";
 import { computeSavingsRate, ISavingsRateResult } from "../util/savings-calc";
+
+interface ITransactionMetaPayload {
+    userDisplayName: string;
+    categoryName: string;
+    budgetName: string;
+}
+
+const resolveTransactionMeta = async (
+    userId: string,
+    actorUsername: string | undefined,
+    categoryId: string,
+    timestamp: number,
+): Promise<ITransactionMetaPayload> => {
+    const date = new Date(timestamp);
+    const month = date.getMonth() + 1;
+    const year = date.getFullYear();
+
+    const [category, savingBudget] = await Promise.all([
+        getCategoryById(userId, categoryId),
+        getSavingBudgetByUser(userId, month, year),
+    ]);
+
+    return {
+        userDisplayName: String(actorUsername || userId).trim() || userId,
+        categoryName: category?.name || categoryId,
+        budgetName: savingBudget?.name || "",
+    };
+};
 
 const listTransactionsByMonth = (
     userId: string,
@@ -38,6 +70,7 @@ const listTransactionsByQuery = (
 const createTransactionForUser = (
     userId: string,
     payload: ICreateTransactionPayload,
+    actorUsername?: string,
 ): Promise<{ transaction: ITransaction; updatedWalletBalance: number }> => {
     return findWalletById(userId, payload.walletId).then(async (wallet) => {
         if (!wallet) {
@@ -53,7 +86,14 @@ const createTransactionForUser = (
             "apply",
         );
 
-        const transaction = await createTransaction(userId, payload);
+        const meta = await resolveTransactionMeta(
+            userId,
+            actorUsername,
+            payload.category,
+            payload.timestamp,
+        );
+
+        const transaction = await createTransaction(userId, payload, meta);
 
         return {
             transaction,
@@ -65,6 +105,7 @@ const createTransactionForUser = (
 const createTransactionsBulkForUser = async (
     userId: string,
     payloads: ICreateTransactionPayload[],
+    actorUsername?: string,
 ): Promise<{ transactions: ITransaction[] }> => {
     for (const payload of payloads) {
         const wallet = await findWalletById(userId, payload.walletId);
@@ -82,7 +123,18 @@ const createTransactionsBulkForUser = async (
         );
     }
 
-    const transactions = await createTransactionsBulk(userId, payloads);
+    const metadataItems = await Promise.all(
+        payloads.map((payload) =>
+            resolveTransactionMeta(
+                userId,
+                actorUsername,
+                payload.category,
+                payload.timestamp,
+            ),
+        ),
+    );
+
+    const transactions = await createTransactionsBulk(userId, payloads, metadataItems);
 
     return { transactions };
 };
@@ -91,6 +143,7 @@ const updateTransactionForUser = (
     userId: string,
     transactionId: string,
     payload: IUpdateTransactionPayload,
+    actorUsername?: string,
 ): Promise<{ transaction: ITransaction; affectedWalletIds: string[] }> => {
     return getTransactionById(userId, transactionId).then(async (existing) => {
         if (!existing) {
@@ -146,7 +199,16 @@ const updateTransactionForUser = (
             throw error;
         }
 
-        const updated = await updateTransaction(userId, transactionId, payload);
+        const resolvedCategory = payload.category ?? existing.category;
+        const resolvedTimestamp = payload.timestamp ?? existing.timestamp;
+        const meta = await resolveTransactionMeta(
+            userId,
+            actorUsername,
+            resolvedCategory,
+            resolvedTimestamp,
+        );
+
+        const updated = await updateTransaction(userId, transactionId, payload, meta);
 
         if (!updated) {
             const error = new Error("Transaction update failed.");
@@ -242,6 +304,53 @@ const getSavingsRateForUser = async (
     });
 };
 
+const getMonthlySpendingTrendForUser = async (
+    userId: string,
+    month: number,
+    year: number,
+): Promise<ISpendingTrendSummary> => {
+    const [{ points, totalIncome }, savingsGoalSummary] = await Promise.all([
+        getSpendingTrendAggregationByMonth(userId, month, year),
+        getSavingGoalByUser(userId, month, year),
+    ]);
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const now = new Date();
+    const isCurrentMonth = now.getMonth() + 1 === month && now.getFullYear() === year;
+    const lastDay = isCurrentMonth ? now.getDate() : daysInMonth;
+
+    const normalizedPoints = points
+        .filter((point) => point.day >= 1 && point.day <= daysInMonth)
+        .map((point) => ({ ...point }))
+        .sort((left, right) => left.day - right.day);
+
+    const savingsGoal = savingsGoalSummary.amount || 0;
+    const monthlySpendable = Math.max(totalIncome - savingsGoal, 0);
+    const averageDailyBudget = monthlySpendable / daysInMonth;
+
+    const maxDailyExpense = normalizedPoints.reduce(
+        (maxValue, point) => Math.max(maxValue, point.expense),
+        0,
+    );
+    const maxValue = Math.max(
+        100000,
+        Math.ceil(Math.max(maxDailyExpense, averageDailyBudget) * 1.18),
+    );
+
+    return {
+        month,
+        year,
+        daysInMonth,
+        lastDay,
+        totalIncome,
+        savingsGoal,
+        monthlySpendable,
+        averageDailyBudget,
+        maxValue,
+        points: normalizedPoints,
+    };
+};
+
 export {
     listTransactionsByMonth,
     listTransactionsByQuery,
@@ -250,4 +359,5 @@ export {
     updateTransactionForUser,
     deleteTransactionForUser,
     getSavingsRateForUser,
+    getMonthlySpendingTrendForUser,
 };

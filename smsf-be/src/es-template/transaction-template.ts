@@ -7,9 +7,12 @@ const transactionMappings = {
         properties: {
             txnId: { type: 'keyword' },
             uId: { type: 'keyword' },
+            uName: { enabled: false },
             wId: { type: 'keyword' },
             cateId: { type: 'keyword' },
+            cateName: { enabled: false },
             bId: { type: 'keyword' },
+            bName: { enabled: false },
             txnType: { type: 'keyword' },
             amount: { type: 'scaled_float', scaling_factor: 100 },
             note: {

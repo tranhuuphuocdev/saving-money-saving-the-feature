@@ -66,6 +66,7 @@ async function createUser(): Promise<void> {
         uId: process.env.USER_ID || randomUUID(),
         dn: process.env.USER_DN || 'dunglamtraitimanhdau',
         username: process.env.USER_USERNAME || 'rampo',
+        teleChatId: process.env.USER_TELEGRAM_CHAT_ID || undefined,
         password: hashPassword(rawPassword),
         role: process.env.USER_ROLE || 'admin',
         createdAt: now,

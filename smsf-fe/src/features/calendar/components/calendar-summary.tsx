@@ -102,7 +102,7 @@ export function CalendarSummary({
                             {motivationalText}
                         </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
+                    <div style={{ textAlign: 'left' }}>
                         <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Mục tiêu:</div>
                         <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--foreground)', marginTop: 2 }}>
                             {formatCurrencyVND(savingsGoal)}

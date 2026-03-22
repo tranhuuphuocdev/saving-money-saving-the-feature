@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken } from '@/lib/auth/api';
+import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken, registerRequest, updateTelegramChatIdRequest } from '@/lib/auth/api';
 import { getWalletsRequest } from '@/lib/calendar/api';
 import { clearSession, getAccessToken, getRefreshToken, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
@@ -79,6 +79,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshWallets();
     }, [refreshWallets]);
 
+    const register = useCallback(async (username: string, password: string, telegramChatId?: string) => {
+        const data = await registerRequest(username, password, telegramChatId);
+        setUser(data.user);
+        await refreshWallets();
+    }, [refreshWallets]);
+
+    const updateTelegramChatId = useCallback(async (telegramChatId?: string) => {
+        const profile = await updateTelegramChatIdRequest(telegramChatId);
+        const accessToken = getAccessToken();
+        const refreshToken = getRefreshToken();
+
+        if (accessToken && refreshToken) {
+            setSession(accessToken, refreshToken, profile);
+        }
+
+        setUser(profile);
+    }, []);
+
     const logout = useCallback(async () => {
         await logoutRequest();
         setUser(null);
@@ -94,6 +112,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             totalWalletBalance,
             wallets,
             login,
+            register,
+            updateTelegramChatId,
             logout,
             refreshProfile,
             refreshWallets,
@@ -101,6 +121,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         [
             isLoading,
             login,
+            register,
+            updateTelegramChatId,
             logout,
             refreshProfile,
             refreshWallets,

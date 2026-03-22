@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowRight, LoaderCircle, LockKeyhole, UserRound } from 'lucide-react';
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
@@ -114,6 +115,20 @@ export function LoginForm() {
                             {submitting ? <LoaderCircle size={18} className="spin" /> : <ArrowRight size={18} />}
                             {submitting ? 'Đang xác thực...' : 'Đăng nhập'}
                         </PrimaryButton>
+
+                        <Link
+                            href="/register"
+                            style={{
+                                marginTop: 6,
+                                textAlign: 'center',
+                                color: 'var(--accent-text)',
+                                fontSize: 13,
+                                textDecoration: 'none',
+                                fontWeight: 700,
+                            }}
+                        >
+                            Chưa có tài khoản? Đăng ký ngay
+                        </Link>
                     </form>
                 </div>
             </AppCard>

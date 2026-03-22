@@ -15,6 +15,7 @@ export interface ITransaction {
     walletId: string;
     amount: number;
     category: string;
+    cateName?: string;
     description?: string;
     type: TypeTransactionKind;
     timestamp: number;

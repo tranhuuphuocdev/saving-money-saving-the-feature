@@ -110,6 +110,41 @@ const findCategoryByUserAndName = async (
     }
 };
 
+const findCategoryByIdForUser = async (
+    userId: string,
+    categoryId: string,
+): Promise<ICategory | undefined> => {
+    try {
+        const response = await esClient.post(`/${categoryAlias}/_search`, {
+            size: 1,
+            query: {
+                bool: {
+                    filter: [{ term: { cateId: String(categoryId) } }],
+                    should: [
+                        { term: { isDefault: true } },
+                        { term: { uId: String(userId) } },
+                    ],
+                    minimum_should_match: 1,
+                    must_not: [{ term: { isDeleted: true } }],
+                },
+            },
+            sort: [{ isDefault: { order: "desc" } }, { updatedAt: { order: "desc" } }],
+        });
+
+        const hit = response.data?.hits?.hits?.[0] as
+            | { _source: Record<string, unknown> }
+            | undefined;
+
+        return hit?._source ? mapCategorySource(hit._source) : undefined;
+    } catch (error) {
+        if ((error as { response?: { status?: number } }).response?.status === 404) {
+            return undefined;
+        }
+
+        throw error;
+    }
+};
+
 const createCategoryForUser = async (
     userId: string,
     name: string,
@@ -143,4 +178,9 @@ const createCategoryForUser = async (
     return category;
 };
 
-export { listCategoriesByUser, findCategoryByUserAndName, createCategoryForUser };
+export {
+    listCategoriesByUser,
+    findCategoryByUserAndName,
+    findCategoryByIdForUser,
+    createCategoryForUser,
+};

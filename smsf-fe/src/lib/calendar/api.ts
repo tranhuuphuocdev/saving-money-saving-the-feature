@@ -9,7 +9,7 @@ import {
     IWalletItem,
     IWalletSummary,
 } from '@/types/calendar';
-import { ISavingGoalData, ISavingsRateData } from '@/types/dashboard';
+import { ISavingGoalData, ISavingsRateData, ISpendingTrendData } from '@/types/dashboard';
 
 interface IApiResponse<T> {
     success: boolean;
@@ -181,6 +181,18 @@ export async function getSavingGoalRequest(params: {
 }): Promise<ISavingGoalData> {
     const response = await api.get<IApiResponse<ISavingGoalData>>(
         '/budgets/saving-goal',
+        { params },
+    );
+
+    return response.data.data;
+}
+
+export async function getSpendingTrendRequest(params: {
+    month?: number;
+    year?: number;
+}): Promise<ISpendingTrendData> {
+    const response = await api.get<IApiResponse<ISpendingTrendData>>(
+        '/transactions/spending-trend',
         { params },
     );
 

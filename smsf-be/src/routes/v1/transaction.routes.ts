@@ -7,6 +7,7 @@ import {
     removeTransaction,
     updateTransaction,
     getSavingsRate,
+    getSpendingTrend,
 } from "../../controllers/transaction.controller";
 
 const router = express.Router();
@@ -14,6 +15,7 @@ const router = express.Router();
 router.get("/", getTransactions);
 router.get("/query", queryTransactions);
 router.get("/savings-rate", getSavingsRate);
+router.get("/spending-trend", getSpendingTrend);
 router.post("/", createTransaction);
 router.post("/bulk", createTransactionsBulk);
 router.put("/:transactionId", updateTransaction);

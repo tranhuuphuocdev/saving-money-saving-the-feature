@@ -22,6 +22,10 @@ const getSavingGoalByUser = async (
     };
 };
 
+const getSavingBudgetByUser = async (userId: string, month: number, year: number) => {
+    return getSavingBudgetByUserAndMonth(userId, month, year);
+};
+
 const upsertSavingGoalByUser = async (
     userId: string,
     month: number,
@@ -50,4 +54,4 @@ const upsertSavingGoalByUser = async (
     };
 };
 
-export { getSavingGoalByUser, upsertSavingGoalByUser };
+export { getSavingGoalByUser, getSavingBudgetByUser, upsertSavingGoalByUser };

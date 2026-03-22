@@ -1,6 +1,7 @@
 import {
     ICreateTransactionPayload,
     IPaginatedTransactions,
+    ISpendingTrendPoint,
     ITransaction,
     ITransactionQueryParams,
     IUpdateTransactionPayload,
@@ -26,9 +27,16 @@ const mapTransactionSource = (
     return {
         id: String(source.txnId),
         userId: String(source.uId),
+        userDisplayName: source.uName ? String(source.uName) : undefined,
         walletId: String(source.wId),
         amount: Number(source.amount || 0),
         category: String(source.cateId),
+        categoryName: source.cateName ? String(source.cateName) : undefined,
+        budgetName: source.bName
+            ? String(source.bName)
+            : source.bName
+              ? String(source.bName)
+              : undefined,
         description: source.note ? String(source.note) : undefined,
         type: String(source.txnType) as ITransaction["type"],
         timestamp: Number(source.txnAt),
@@ -205,15 +213,23 @@ const getTransactionById = (
 const createTransaction = (
     userId: string,
     payload: ICreateTransactionPayload,
+    metadata: {
+        userDisplayName: string;
+        categoryName: string;
+        budgetName: string;
+    },
 ): Promise<ITransaction> => {
     const now = Date.now();
 
     const transaction: ITransaction = {
         id: buildId(),
         userId,
+        userDisplayName: metadata.userDisplayName,
         walletId: payload.walletId,
         amount: payload.amount,
         category: payload.category,
+        categoryName: metadata.categoryName,
+        budgetName: metadata.budgetName,
         description: payload.description,
         type: payload.type,
         timestamp: payload.timestamp,
@@ -227,9 +243,11 @@ const createTransaction = (
         .put(`/${indexName}/_doc/${transaction.id}?refresh=true`, {
             txnId: transaction.id,
             uId: String(transaction.userId),
+            uName: transaction.userDisplayName || "",
             wId: transaction.walletId,
             cateId: transaction.category,
-            bId: "",
+            cateName: transaction.categoryName || "",
+            bName: transaction.budgetName || "",
             txnType: transaction.type,
             amount: transaction.amount,
             note: transaction.description || "",
@@ -244,24 +262,36 @@ const createTransaction = (
 const createTransactionsBulk = (
     userId: string,
     payloads: ICreateTransactionPayload[],
+    metadataItems: Array<{
+        userDisplayName: string;
+        categoryName: string;
+        budgetName: string;
+    }>,
 ): Promise<ITransaction[]> => {
     if (payloads.length === 0) {
         return Promise.resolve([]);
     }
 
     const now = Date.now();
-    const transactions = payloads.map((payload) => ({
-        id: buildId(),
-        userId,
-        walletId: payload.walletId,
-        amount: payload.amount,
-        category: payload.category,
-        description: payload.description,
-        type: payload.type,
-        timestamp: payload.timestamp,
-        createdAt: now,
-        updatedAt: now,
-    }));
+    const transactions = payloads.map((payload, index) => {
+        const metadata = metadataItems[index];
+
+        return {
+            id: buildId(),
+            userId,
+            userDisplayName: metadata?.userDisplayName || userId,
+            walletId: payload.walletId,
+            amount: payload.amount,
+            category: payload.category,
+            categoryName: metadata?.categoryName || payload.category,
+            budgetName: metadata?.budgetName || "",
+            description: payload.description,
+            type: payload.type,
+            timestamp: payload.timestamp,
+            createdAt: now,
+            updatedAt: now,
+        };
+    });
 
     const operations = transactions.flatMap((transaction) => {
         const indexName = transactionIndexByTimestamp(transaction.timestamp);
@@ -275,9 +305,11 @@ const createTransactionsBulk = (
             {
                 txnId: transaction.id,
                 uId: String(transaction.userId),
+                uName: transaction.userDisplayName || "",
                 wId: transaction.walletId,
                 cateId: transaction.category,
-                bId: "",
+                cateName: transaction.categoryName || "",
+                bName: transaction.budgetName || "",
                 txnType: transaction.type,
                 amount: transaction.amount,
                 note: transaction.description || "",
@@ -306,6 +338,11 @@ const updateTransaction = (
     userId: string,
     transactionId: string,
     payload: IUpdateTransactionPayload,
+    metadata: {
+        userDisplayName: string;
+        categoryName: string;
+        budgetName: string;
+    },
 ): Promise<ITransaction | undefined> => {
     return getTransactionById(userId, transactionId).then((transaction) => {
         if (!transaction) {
@@ -331,6 +368,10 @@ const updateTransaction = (
             transaction.timestamp = payload.timestamp;
         }
 
+        transaction.userDisplayName = metadata.userDisplayName;
+        transaction.categoryName = metadata.categoryName;
+        transaction.budgetName = metadata.budgetName;
+
         transaction.updatedAt = Date.now();
 
         const nextIndex = transactionIndexByTimestamp(transaction.timestamp);
@@ -339,9 +380,11 @@ const updateTransaction = (
             .put(`/${nextIndex}/_doc/${transaction.id}?refresh=true`, {
                 txnId: transaction.id,
                 uId: String(transaction.userId),
+                uName: transaction.userDisplayName || "",
                 wId: transaction.walletId,
                 cateId: transaction.category,
-                bId: "",
+                cateName: transaction.categoryName || "",
+                bName: transaction.budgetName || "",
                 txnType: transaction.type,
                 amount: transaction.amount,
                 note: transaction.description || "",
@@ -382,6 +425,97 @@ const deleteTransaction = (
     });
 };
 
+const getSpendingTrendAggregationByMonth = async (
+    userId: string,
+    month: number,
+    year: number,
+): Promise<{ points: ISpendingTrendPoint[]; totalIncome: number }> => {
+    const from = new Date(year, month - 1, 1).getTime();
+    const to = new Date(year, month, 1).getTime() - 1;
+
+    try {
+        const response = await esClient.post(`/${transactionAlias}/_search`, {
+            size: 0,
+            query: {
+                bool: {
+                    filter: [
+                        { term: { uId: String(userId) } },
+                        { range: { txnAt: { gte: from, lte: to } } },
+                    ],
+                    must_not: [{ term: { isDeleted: true } }],
+                },
+            },
+            aggs: {
+                total_income: {
+                    filter: { term: { txnType: "income" } },
+                    aggs: {
+                        amount: {
+                            sum: { field: "amount" },
+                        },
+                    },
+                },
+                by_day: {
+                    date_histogram: {
+                        field: "txnAt",
+                        calendar_interval: "day",
+                        min_doc_count: 0,
+                        extended_bounds: {
+                            min: from,
+                            max: to,
+                        },
+                    },
+                    aggs: {
+                        expense_amount: {
+                            filter: { term: { txnType: "expense" } },
+                            aggs: {
+                                amount: {
+                                    sum: { field: "amount" },
+                                },
+                            },
+                        },
+                        income_amount: {
+                            filter: { term: { txnType: "income" } },
+                            aggs: {
+                                amount: {
+                                    sum: { field: "amount" },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        const buckets =
+            (response.data?.aggregations?.by_day?.buckets as Array<Record<string, unknown>>) ||
+            [];
+
+        const points: ISpendingTrendPoint[] = buckets.map((bucket) => {
+            const timestamp = Number(bucket.key || 0);
+            const date = new Date(timestamp);
+
+            return {
+                day: date.getDate(),
+                timestamp,
+                expense: Number((bucket.expense_amount as { amount?: { value?: number } })?.amount?.value || 0),
+                income: Number((bucket.income_amount as { amount?: { value?: number } })?.amount?.value || 0),
+            };
+        });
+
+        const totalIncome = Number(
+            response.data?.aggregations?.total_income?.amount?.value || 0,
+        );
+
+        return { points, totalIncome };
+    } catch (error) {
+        if ((error as { response?: { status?: number } }).response?.status === 404) {
+            return { points: [], totalIncome: 0 };
+        }
+
+        throw error;
+    }
+};
+
 export {
     getTransactionsByUserAndMonth,
     queryTransactionsByUser,
@@ -390,4 +524,5 @@ export {
     createTransactionsBulk,
     updateTransaction,
     deleteTransaction,
+    getSpendingTrendAggregationByMonth,
 };

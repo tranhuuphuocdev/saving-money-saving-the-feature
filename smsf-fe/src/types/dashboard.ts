@@ -51,3 +51,23 @@ export interface ISavingGoalData {
     year: number;
     categoryId?: string;
 }
+
+export interface ISpendingTrendPoint {
+    day: number;
+    timestamp: number;
+    expense: number;
+    income: number;
+}
+
+export interface ISpendingTrendData {
+    month: number;
+    year: number;
+    daysInMonth: number;
+    lastDay: number;
+    totalIncome: number;
+    savingsGoal: number;
+    monthlySpendable: number;
+    averageDailyBudget: number;
+    maxValue: number;
+    points: ISpendingTrendPoint[];
+}

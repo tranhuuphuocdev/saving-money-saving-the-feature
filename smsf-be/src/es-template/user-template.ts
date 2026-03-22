@@ -11,6 +11,7 @@ const userMappings = {
                 fields: { keyword: { type: 'keyword', ignore_above: 256 } },
             },
             username: { type: 'keyword' },
+            teleChatId: { type: 'keyword' },
             password: { type: 'keyword', index: false },
             role: { type: 'keyword' },
             createdAt: { type: 'date' },

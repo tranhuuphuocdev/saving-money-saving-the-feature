@@ -45,12 +45,27 @@ export function TransactionModal({
     onUpdateTransaction,
     onDeleteTransaction,
 }: ITransactionModalProps) {
+    const OTHER_CATEGORY_ID = 'other';
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingTransactionId, setEditingTransactionId] = useState<string | null>(
         null,
     );
     const [amount, setAmount] = useState('');
-    const [walletId, setWalletId] = useState(wallets[0]?.id ?? '');
+    const richestWalletId = useMemo(() => {
+        if (wallets.length === 0) {
+            return '';
+        }
+
+        return wallets.reduce((bestWallet, wallet) => {
+            if (!bestWallet || wallet.balance > bestWallet.balance) {
+                return wallet;
+            }
+
+            return bestWallet;
+        }, wallets[0]).id;
+    }, [wallets]);
+
+    const [walletId, setWalletId] = useState(richestWalletId);
     const [categoryId, setCategoryId] = useState('');
     const [type, setType] = useState<TypeTransactionKind>('expense');
     const [description, setDescription] = useState('');
@@ -74,15 +89,41 @@ export function TransactionModal({
         return filtered.length > 0 ? filtered : categories;
     }, [categories, type]);
 
+    const categoryGridOptions = useMemo(() => {
+        const optionsWithoutOther = categoryOptions.filter(
+            (item) => item.id !== OTHER_CATEGORY_ID,
+        );
+
+        return [
+            ...optionsWithoutOther,
+            {
+                id: OTHER_CATEGORY_ID,
+                name: 'Mục khác',
+                type,
+                isDefault: false,
+            },
+        ];
+    }, [OTHER_CATEGORY_ID, categoryOptions, type]);
+
     useEffect(() => {
         if (!isFormOpen) {
             return;
         }
 
-        if (!categoryOptions.some((item) => item.id === categoryId)) {
-            setCategoryId(categoryOptions[0]?.id || '');
+        if (!categoryGridOptions.some((item) => item.id === categoryId)) {
+            setCategoryId(categoryGridOptions[0]?.id || '');
         }
-    }, [isFormOpen, categoryId, categoryOptions]);
+    }, [isFormOpen, categoryId, categoryGridOptions]);
+
+    useEffect(() => {
+        if (!isFormOpen) {
+            return;
+        }
+
+        if (!wallets.some((wallet) => wallet.id === walletId)) {
+            setWalletId(richestWalletId);
+        }
+    }, [isFormOpen, richestWalletId, walletId, wallets]);
 
     const totalIncome = useMemo(
         () =>
@@ -119,7 +160,7 @@ export function TransactionModal({
     const beginCreateForm = () => {
         setErrorMessage('');
         setEditingTransactionId(null);
-        setWalletId(wallets[0]?.id ?? '');
+        setWalletId(richestWalletId);
         setType('expense');
         setCategoryId(
             categories.find((item) => item.type === 'expense')?.id ||
@@ -402,66 +443,60 @@ export function TransactionModal({
                                     Chưa có ví để chọn.
                                 </div>
                             ) : (
-                                <div style={{ display: 'grid', gap: 8, maxHeight: 190, overflowY: 'auto' }}>
-                                    {wallets.map((wallet) => {
-                                        const isSelected = wallet.id === walletId;
-
-                                        return (
-                                            <button
-                                                key={wallet.id}
-                                                type="button"
-                                                onClick={() => setWalletId(wallet.id)}
-                                                style={{
-                                                    borderRadius: 10,
-                                                    border: isSelected
-                                                        ? '1px solid var(--theme-gradient-start)'
-                                                        : '1px solid var(--surface-border)',
-                                                    background: isSelected
-                                                        ? 'var(--chip-bg)'
-                                                        : 'var(--surface-soft)',
-                                                    color: 'var(--foreground)',
-                                                    padding: '10px 12px',
-                                                    display: 'grid',
-                                                    gridTemplateColumns: '1fr auto',
-                                                    alignItems: 'center',
-                                                    gap: 10,
-                                                    textAlign: 'left',
-                                                }}
-                                            >
-                                                <div>
-                                                    <div style={{ fontSize: 13, fontWeight: 700 }}>{wallet.name}</div>
-                                                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                                                        {wallet.type.toUpperCase()} • {formatCurrencyVND(wallet.balance)}
-                                                    </div>
-                                                </div>
-
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isSelected}
-                                                    onChange={() =>
-                                                        setWalletId((currentWalletId) =>
-                                                            currentWalletId === wallet.id ? '' : wallet.id,
-                                                        )
-                                                    }
-                                                    onClick={(event) => event.stopPropagation()}
-                                                    style={{ width: 16, height: 16 }}
-                                                />
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                <CustomSelect
+                                    value={walletId}
+                                    onChange={setWalletId}
+                                    options={wallets.map((wallet) => ({
+                                        value: wallet.id,
+                                        label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
+                                    }))}
+                                />
                             )}
                         </div>
 
-                        <CustomSelect
-                            value={categoryId}
-                            onChange={setCategoryId}
-                            placeholder="Chưa có danh mục"
-                            options={categoryOptions.map((item) => ({
-                                value: item.id,
-                                label: item.name,
-                            }))}
-                        />
+                        <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
+                                Chọn danh mục
+                            </div>
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                                    gap: 8,
+                                }}
+                            >
+                                {categoryGridOptions.map((item) => {
+                                    const isSelected = item.id === categoryId;
+
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            onClick={() => setCategoryId(item.id)}
+                                            style={{
+                                                minHeight: 44,
+                                                borderRadius: 10,
+                                                border: isSelected
+                                                    ? '1px solid var(--theme-gradient-start)'
+                                                    : '1px solid var(--surface-border)',
+                                                background: isSelected
+                                                    ? 'var(--chip-bg)'
+                                                    : 'var(--surface-soft)',
+                                                color: 'var(--foreground)',
+                                                fontSize: 'clamp(11px, 2.6vw, 12px)',
+                                                fontWeight: isSelected ? 700 : 600,
+                                                padding: '8px 6px',
+                                                textAlign: 'center',
+                                                lineHeight: 1.25,
+                                                wordBreak: 'break-word',
+                                            }}
+                                        >
+                                            {item.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
 
                         <input
                             type="text"
@@ -629,7 +664,7 @@ export function TransactionModal({
                                         <div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <div style={{ fontSize: 13, fontWeight: 700 }}>
-                                                    {categoryNameMap[transaction.category] || transaction.category}
+                                                    {transaction.cateName || categoryNameMap[transaction.category] || transaction.category}
                                                 </div>
                                                 <span
                                                     style={{

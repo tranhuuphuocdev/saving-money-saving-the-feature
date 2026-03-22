@@ -4,6 +4,7 @@ import walletRoutes from "./wallet.routes";
 import transactionRoutes from "./transaction.routes";
 import categoryRoutes from "./category.routes";
 import budgetRoutes from "./budget.routes";
+import notificationRoutes from "./notification.routes";
 import { authMiddleware } from "../../middlewares";
 
 const router = express.Router();
@@ -13,5 +14,6 @@ router.use("/wallets", authMiddleware, walletRoutes);
 router.use("/transactions", authMiddleware, transactionRoutes);
 router.use("/categories", authMiddleware, categoryRoutes);
 router.use("/budgets", authMiddleware, budgetRoutes);
+router.use("/notifications", authMiddleware, notificationRoutes);
 
 export default router;

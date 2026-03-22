@@ -23,6 +23,10 @@ const config = {
     ES_NAME_PREFIX: process.env.ES_NAME_PREFIX || "",
     ES_USERNAME: process.env.ES_USERNAME || "elastic",
     ES_PASSWORD: process.env.ES_PASSWORD || "yoimPhx0710!@",
+    telegram: {
+        botToken: process.env.TELEGRAM_BOT_TOKEN || "",
+        defaultChatId: process.env.TELEGRAM_DEFAULT_CHAT_ID || "",
+    },
     tracing: {
         enabled: process.env.TRACING_ENABLED !== "false",
         serviceName: process.env.OTEL_SERVICE_NAME || "smsf-be",

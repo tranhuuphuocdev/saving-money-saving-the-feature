@@ -114,6 +114,12 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
         return getSavingsRateRequest({ month, year });
     }, []);
 
+    const refreshCategoriesFromDb = useCallback(async () => {
+        const fetchedCategories = await getCategoriesRequest();
+        setCategories(fetchedCategories);
+        return fetchedCategories;
+    }, []);
+
     const refreshCurrentSavingsMetrics = useCallback(async () => {
         const nextMetrics = await fetchSavingsMetrics(currentMonth, currentYear);
         setSavingsMetrics(nextMetrics);
@@ -148,7 +154,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
                     getOrFetchMonthTransactions(getShiftedMonth(month, year, -1).month, getShiftedMonth(month, year, -1).year),
                     getOrFetchMonthTransactions(month, year),
                     getOrFetchMonthTransactions(getShiftedMonth(month, year, 1).month, getShiftedMonth(month, year, 1).year),
-                    getCategoriesRequest(),
+                    refreshCategoriesFromDb(),
                     fetchSavingsMetrics(month, year),
                 ]);
 
@@ -194,6 +200,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
         isAuthLoading,
         isAuthenticated,
         onInitialLoadComplete,
+        refreshCategoriesFromDb,
     ]);
 
     useEffect(() => {
@@ -334,6 +341,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
 
     function handleDaySelect(day: ICalendarDay) {
         setSelectedDay(day);
+        void refreshCategoriesFromDb();
     }
 
     function handleCloseModal() {
@@ -414,7 +422,6 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
 
     return (
         <div style={{ padding: '10px 14px', paddingBottom: `calc(80px + env(safe-area-inset-bottom, 0px))` }}>
-            <CalendarHeader currentMonth={currentMonth} currentYear={currentYear} onMonthChange={handleMonthChange} />
 
             <CalendarSummary
                 monthLabel={monthLabel}
@@ -428,6 +435,8 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
                 onSaveSavingGoal={handleSaveSavingGoal}
             />
 
+            <CalendarHeader currentMonth={currentMonth} currentYear={currentYear} onMonthChange={handleMonthChange} />
+            
             {isLoading ? (
                 <div style={{ padding: '12px 4px', color: 'var(--muted)', fontSize: 13 }}>
                     Đang chuyển tháng...

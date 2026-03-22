@@ -78,8 +78,32 @@ export async function loginRequest(username: string, password: string): Promise<
     return payload;
 }
 
+export async function registerRequest(
+    username: string,
+    password: string,
+    telegramChatId?: string,
+): Promise<ILoginResponse['data']> {
+    const response = await api.post<ILoginResponse>('/auth/register', {
+        username,
+        password,
+        telegramChatId,
+    });
+
+    const payload = response.data.data;
+    setSession(payload.accessToken, payload.refreshToken, payload.user);
+    return payload;
+}
+
 export async function getProfileRequest() {
     const response = await api.get<IProfileResponse>('/auth/profile');
+    return response.data.data;
+}
+
+export async function updateTelegramChatIdRequest(telegramChatId?: string) {
+    const response = await api.patch<IProfileResponse>('/auth/profile', {
+        telegramChatId,
+    });
+
     return response.data.data;
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BellDot, CircleDollarSign, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-react';
 import { AppCard } from '@/components/common/app-card';
@@ -10,13 +10,17 @@ import { NotificationDrawer } from '@/components/navigation/notification-drawer'
 import { SideDrawer } from '@/components/navigation/side-drawer';
 import { ExpenseDonutCard } from '@/features/dashboard/components/charts/expense-donut-card';
 import { SavingsRingCard } from '@/features/dashboard/components/charts/savings-ring-card';
+import { SpendingTrendCard } from '@/features/dashboard/components/charts/spending-trend-card';
 import { RecentTransactionsCard } from '@/features/dashboard/components/recent-transactions-card';
 import { CalendarShell } from '@/features/calendar/components/calendar-shell';
 import { TransactionsTab } from '@/features/dashboard/components/transactions-tab';
-import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest } from '@/lib/calendar/api';
+import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest, getSpendingTrendRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { createNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
 import { useAuth } from '@/providers/auth-provider';
-import { IExpenseCategoryItem, IRecentTransaction, ISavingsRateData, TypeDashboardTab } from '@/types/dashboard';
+import { ICategoryItem } from '@/types/calendar';
+import { IExpenseCategoryItem, IRecentTransaction, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
+import { ICreateNotificationPayload, INotificationItem, IPayNotificationPayload } from '@/types/notification';
 
 function PlaceholderPanel({ title, description }: { title: string; description: string }) {
     return (
@@ -27,34 +31,27 @@ function PlaceholderPanel({ title, description }: { title: string; description: 
     );
 }
 
-interface IRecurringExpenseItem {
-    id: string;
-    category: string;
-    description: string;
-    estimatedAmount: number;
-    nextDueAt: number;
-    remainingDays: number;
-    frequencyLabel: string;
-}
-
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 export function DashboardShell() {
     const router = useRouter();
-    const { isAuthenticated, isLoading, logout, user, totalWalletBalance, wallets } = useAuth();
+    const { isAuthenticated, isLoading, logout, refreshWallets, user, totalWalletBalance, wallets } = useAuth();
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<TypeDashboardTab>('dashboard');
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
     const [isRecurringLoading, setIsRecurringLoading] = useState(false);
-    const [upcomingRecurringExpenses, setUpcomingRecurringExpenses] = useState<IRecurringExpenseItem[]>([]);
+    const [paymentNotifications, setPaymentNotifications] = useState<INotificationItem[]>([]);
+    const [expenseNotificationCategories, setExpenseNotificationCategories] = useState<ICategoryItem[]>([]);
+    const [isPaymentNotificationsLoading, setIsPaymentNotificationsLoading] = useState(false);
     const [isFirstCalendarLoading, setIsFirstCalendarLoading] = useState(false);
     const [isCalendarVisible, setIsCalendarVisible] = useState(true);
     const [recentTransactions, setRecentTransactions] = useState<IRecentTransaction[]>([]);
     const [expenseCategories, setExpenseCategories] = useState<IExpenseCategoryItem[]>([]);
     const [monthLabel, setMonthLabel] = useState('');
     const [savingsMetrics, setSavingsMetrics] = useState<ISavingsRateData | null>(null);
+    const [spendingTrendData, setSpendingTrendData] = useState<ISpendingTrendData | null>(null);
     const firstCalendarDelayTimerRef = useRef<number | null>(null);
     const calendarRevealTimerRef = useRef<number | null>(null);
 
@@ -71,6 +68,25 @@ export function DashboardShell() {
         '#ef4444',
         '#6366f1',
     ];
+
+    const fetchPaymentNotifications = useCallback(async () => {
+        setIsPaymentNotificationsLoading(true);
+
+        try {
+            const [categoryItems, notificationItems] = await Promise.all([
+                getCategoriesRequest('expense'),
+                getNotificationsRequest(),
+            ]);
+
+            setExpenseNotificationCategories(categoryItems.filter((item) => item.type === 'expense'));
+            setPaymentNotifications(notificationItems);
+        } catch {
+            setExpenseNotificationCategories([]);
+            setPaymentNotifications([]);
+        } finally {
+            setIsPaymentNotificationsLoading(false);
+        }
+    }, []);
 
     const fetchRecentTransactions = useCallback(async () => {
         try {
@@ -100,12 +116,13 @@ export function DashboardShell() {
                 return allItems;
             };
 
-            const [categoryItems, recentResult, monthItems, historyResult, savingsData] = await Promise.all([
+            const [categoryItems, recentResult, monthItems, historyResult, savingsData, trendData] = await Promise.all([
                 getCategoriesRequest(),
                 queryTransactionsRequest({ page: 1, limit: 5 }),
                 fetchMonthTransactions(),
                 queryTransactionsRequest({ page: 1, limit: 80 }),
                 getSavingsRateRequest({ month: now.getMonth() + 1, year: now.getFullYear() }),
+                getSpendingTrendRequest({ month: now.getMonth() + 1, year: now.getFullYear() }),
             ]);
 
             const categoryNameMap = categoryItems.reduce<Record<string, string>>((acc, item) => {
@@ -202,8 +219,6 @@ export function DashboardShell() {
                 .slice(0, 8)
                 .map(({ transactionCount: _, ...item }) => item);
 
-            setUpcomingRecurringExpenses(recurringItems);
-
             const expenseTransactions = monthItems.filter((item) => item.type === 'expense');
             const totalExpense = expenseTransactions.reduce((sum, item) => sum + item.amount, 0);
             const expenseByCategory = expenseTransactions.reduce<Record<string, number>>((acc, item) => {
@@ -224,6 +239,7 @@ export function DashboardShell() {
             setExpenseCategories(computedCategories);
 
             setSavingsMetrics(savingsData);
+            setSpendingTrendData(trendData);
             setMonthLabel(
                 `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
             );
@@ -231,7 +247,7 @@ export function DashboardShell() {
             setRecentTransactions([]);
             setExpenseCategories([]);
             setSavingsMetrics(null);
-            setUpcomingRecurringExpenses([]);
+            setSpendingTrendData(null);
         } finally {
             setIsRecurringLoading(false);
         }
@@ -249,17 +265,39 @@ export function DashboardShell() {
         }
 
         void fetchRecentTransactions();
-    }, [fetchRecentTransactions, isAuthenticated]);
+        void fetchPaymentNotifications();
+    }, [fetchPaymentNotifications, fetchRecentTransactions, isAuthenticated]);
 
     useEffect(() => {
         const handler = () => void fetchRecentTransactions();
+        const notificationHandler = () => void fetchPaymentNotifications();
         window.addEventListener('transaction:changed', handler);
         window.addEventListener('savings-goal:changed', handler);
+        window.addEventListener('notification:changed', notificationHandler);
         return () => {
             window.removeEventListener('transaction:changed', handler);
             window.removeEventListener('savings-goal:changed', handler);
+            window.removeEventListener('notification:changed', notificationHandler);
         };
-    }, [fetchRecentTransactions]);
+    }, [fetchPaymentNotifications, fetchRecentTransactions]);
+
+    const handleCreatePaymentNotification = useCallback(
+        async (payload: ICreateNotificationPayload) => {
+            await createNotificationRequest(payload);
+            window.dispatchEvent(new CustomEvent('notification:changed'));
+        },
+        [],
+    );
+
+    const handlePayPaymentNotification = useCallback(
+        async (notificationId: string, payload: IPayNotificationPayload) => {
+            await payNotificationRequest(notificationId, payload);
+            await refreshWallets();
+            window.dispatchEvent(new CustomEvent('notification:changed'));
+            window.dispatchEvent(new CustomEvent('transaction:changed'));
+        },
+        [refreshWallets],
+    );
 
     useEffect(() => {
         return () => {
@@ -283,6 +321,7 @@ export function DashboardShell() {
                     avgDailyExpense={savingsMetrics?.avgDailyExpense ?? 0}
                 />
             </div>
+            <SpendingTrendCard data={spendingTrendData} isLoading={isRecurringLoading} />
             <RecentTransactionsCard transactions={recentTransactions} />
         </div>
     );
@@ -434,12 +473,23 @@ export function DashboardShell() {
 
     return (
         <>
-            <SideDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} user={user} totalWalletBalance={totalWalletBalance} wallets={wallets} />
+            <SideDrawer
+                isOpen={isDrawerOpen}
+                onClose={() => setIsDrawerOpen(false)}
+                user={user}
+                totalWalletBalance={totalWalletBalance}
+                wallets={wallets}
+            />
             <NotificationDrawer
                 isOpen={isNotificationOpen}
-                isLoading={isRecurringLoading}
-                items={upcomingRecurringExpenses}
+                isLoading={isPaymentNotificationsLoading}
+                notifications={paymentNotifications}
+                wallets={wallets}
+                expenseCategories={expenseNotificationCategories}
+                userTelegramChatId={user?.telegramChatId}
                 onClose={() => setIsNotificationOpen(false)}
+                onCreateNotification={handleCreatePaymentNotification}
+                onPayNotification={handlePayPaymentNotification}
             />
             <main className="app-shell">
                 <div className="page-container">

@@ -1,6 +1,7 @@
 'use client';
 
 import { MoonStar, Palette, ShieldCheck, SunMedium, UserRound, WalletCards, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { useLockBodyScroll } from '@/lib/ui/use-lock-body-scroll';
@@ -17,6 +18,7 @@ interface ISideDrawerProps {
 }
 
 export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets }: ISideDrawerProps) {
+    const router = useRouter();
     const { theme, toggleTheme } = useTheme();
     useLockBodyScroll(isOpen);
 
@@ -112,6 +114,30 @@ export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets 
                         <div style={{ fontSize: 28, lineHeight: 1.1, fontWeight: 900 }}>{formatCurrencyVND(totalWalletBalance)}</div>
                         <div style={{ fontSize: 12, color: 'rgba(239,246,255,0.85)' }}>Tiết kiệm là thượng sách để có tất cả</div>
                     </div>
+
+                    <button
+                        onClick={() => {
+                            onClose();
+                            router.push('/profile');
+                        }}
+                        style={{
+                            borderRadius: 16,
+                            padding: '12px 14px',
+                            background: 'var(--surface-soft)',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            color: 'var(--foreground)',
+                        }}
+                    >
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>Thông tin user</div>
+                            <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Xem chi tiết thông tin của bạn, ví,...</div>
+                        </div>
+                        <UserRound size={18} color="var(--accent)" />
+                    </button>
 
                     <div
                         style={{

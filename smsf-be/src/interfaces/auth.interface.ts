@@ -6,6 +6,13 @@ export interface IUser {
     username: string;
     password: string;
     role: TypeUserRole;
+    telegramChatId?: string;
+}
+
+export interface IRegisterPayload {
+    username?: string;
+    password?: string;
+    telegramChatId?: string;
 }
 
 export interface ILoginPayload {

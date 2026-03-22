@@ -1,11 +1,13 @@
 import { Request, Response } from "express";
 import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import jwt, { SignOptions } from "jsonwebtoken";
 import config from "../config";
 import {
     IJwtAuthPayload,
     ILoginPayload,
     ILogoutPayloadRequest,
+    IRegisterPayload,
     IRefreshTokenPayloadRequest,
     IUser,
 } from "../interfaces/auth.interface";
@@ -17,12 +19,25 @@ import {
     storeRefreshToken,
 } from "../lib/auth-token-store";
 import { esClient, withPrefix } from "../lib/es-client";
+import { listWalletsByUserId } from "../services/wallet.service";
+import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
 
 type IUserSource = {
     uId: string;
+    dn?: string;
     username: string;
     password: string;
     role: IUser["role"];
+    teleChatId?: string;
+    createdAt?: number;
+    updatedAt?: number;
+    isDeleted?: boolean;
+};
+
+type IUserHit = {
+    _id: string;
+    _index: string;
+    _source: IUserSource;
 };
 
 const mapUserSource = (source: IUserSource): IUser => {
@@ -31,10 +46,11 @@ const mapUserSource = (source: IUserSource): IUser => {
         username: source.username,
         password: source.password,
         role: source.role,
+        telegramChatId: source.teleChatId ? String(source.teleChatId) : undefined,
     };
 };
 
-const searchUser = async (query: Record<string, unknown>): Promise<IUser | undefined> => {
+const searchUserDocument = async (query: Record<string, unknown>): Promise<IUserHit | undefined> => {
     const indexes = [withPrefix("user"), withPrefix("user-*")];
 
     for (const indexName of indexes) {
@@ -45,9 +61,9 @@ const searchUser = async (query: Record<string, unknown>): Promise<IUser | undef
                 query,
             });
 
-            const hit = response.data?.hits?.hits?.[0];
+            const hit = response.data?.hits?.hits?.[0] as IUserHit | undefined;
             if (hit?._source) {
-                return mapUserSource(hit._source as IUserSource);
+                return hit;
             }
         } catch (error) {
             const statusCode =
@@ -62,6 +78,11 @@ const searchUser = async (query: Record<string, unknown>): Promise<IUser | undef
     return undefined;
 };
 
+const searchUser = async (query: Record<string, unknown>): Promise<IUser | undefined> => {
+    const hit = await searchUserDocument(query);
+    return hit?._source ? mapUserSource(hit._source) : undefined;
+};
+
 const findUserByCredentials = async (
     username: string,
     password: string,
@@ -69,6 +90,15 @@ const findUserByCredentials = async (
     return searchUser({
         bool: {
             filter: [{ term: { username } }, { term: { password } }],
+        },
+    });
+};
+
+const findUserByUsername = async (username: string): Promise<IUser | undefined> => {
+    return searchUser({
+        bool: {
+            filter: [{ term: { username } }],
+            must_not: [{ term: { isDeleted: true } }],
         },
     });
 };
@@ -81,8 +111,43 @@ const findUserById = async (userId: string): Promise<IUser | undefined> => {
     return searchUser({
         bool: {
             filter: [{ term: { uId: String(userId) } }],
+            must_not: [{ term: { isDeleted: true } }],
         },
     });
+};
+
+const createUserDocument = async (payload: IUserSource): Promise<void> => {
+    const indexName = withPrefix(
+        buildIndexName("user-", payload.createdAt || Date.now(), TIME_FRAME_FORMAT.MONTH),
+    );
+
+    await esClient.put(`/${indexName}/_doc/${payload.uId}?refresh=true`, payload);
+};
+
+const updateUserTelegramChatId = async (
+    userId: string,
+    telegramChatId?: string,
+): Promise<IUser | undefined> => {
+    const hit = await searchUserDocument({
+        bool: {
+            filter: [{ term: { uId: String(userId) } }],
+            must_not: [{ term: { isDeleted: true } }],
+        },
+    });
+
+    if (!hit?._source) {
+        return undefined;
+    }
+
+    const updatedSource: IUserSource = {
+        ...hit._source,
+        teleChatId: telegramChatId || "",
+        updatedAt: Date.now(),
+    };
+
+    await esClient.put(`/${hit._index}/_doc/${hit._id}?refresh=true`, updatedSource);
+
+    return mapUserSource(updatedSource);
 };
 
 /**
@@ -153,6 +218,7 @@ const login = async (req: Request, res: Response): Promise<Response | void> => {
                     id: user.id,
                     username: user.username,
                     role: user.role,
+                    telegramChatId: user.telegramChatId,
                 },
             },
         });
@@ -160,6 +226,86 @@ const login = async (req: Request, res: Response): Promise<Response | void> => {
         return res.status(500).json({
             success: false,
             message: "Login failed.",
+        });
+    }
+};
+
+const register = async (req: Request, res: Response): Promise<Response | void> => {
+    try {
+        const { username, password, telegramChatId } = req.body as IRegisterPayload;
+
+        const safeUsername = String(username || "").trim();
+        const safePassword = String(password || "").trim();
+        const safeTelegramChatId = String(telegramChatId || "").trim();
+
+        if (!safeUsername || !safePassword) {
+            return res.status(400).json({
+                success: false,
+                message: "Username and password are required.",
+            });
+        }
+
+        if (safeUsername.length < 3 || safeUsername.length > 40) {
+            return res.status(400).json({
+                success: false,
+                message: "Username must be between 3 and 40 characters.",
+            });
+        }
+
+        if (safePassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: "Password must be at least 6 characters.",
+            });
+        }
+
+        const existingUser = await findUserByUsername(safeUsername);
+        if (existingUser) {
+            return res.status(409).json({
+                success: false,
+                message: "Username already exists.",
+            });
+        }
+
+        const now = Date.now();
+        const newUser: IUserSource = {
+            uId: randomUUID(),
+            dn: safeUsername,
+            username: safeUsername,
+            password: hashPassword(safePassword),
+            role: "user",
+            teleChatId: safeTelegramChatId || undefined,
+            createdAt: now,
+            updatedAt: now,
+            isDeleted: false,
+        };
+
+        await createUserDocument(newUser);
+        await listWalletsByUserId(newUser.uId);
+
+        const user: IUser = mapUserSource(newUser);
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+        storeRefreshToken(refreshToken, user.id);
+
+        return res.status(201).json({
+            success: true,
+            message: "Register successful.",
+            data: {
+                accessToken,
+                refreshToken,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                    telegramChatId: user.telegramChatId,
+                },
+            },
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Register failed.",
         });
     }
 };
@@ -260,16 +406,66 @@ const logout = (req: Request, res: Response): Response => {
 /**
  * Get current user profile (protected)
  */
-const getProfile = (req: Request, res: Response): Response => {
+const getProfile = async (req: Request, res: Response): Promise<Response> => {
+    const user = await findUserById(String(req.user.id));
+
     return res.json({
         success: true,
         data: {
             id: req.user.id,
             username: req.user.username,
             role: req.user.role,
+            telegramChatId: user?.telegramChatId,
         },
     });
 };
 
-export { login, getProfile };
+const updateProfile = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const telegramChatId =
+        req.body?.telegramChatId === undefined || req.body?.telegramChatId === null
+            ? undefined
+            : String(req.body.telegramChatId).trim();
+
+    if (telegramChatId && telegramChatId.length > 64) {
+        return res.status(400).json({
+            success: false,
+            message: "telegramChatId must be less than or equal to 64 characters.",
+        });
+    }
+
+    try {
+        const updatedUser = await updateUserTelegramChatId(userId, telegramChatId);
+
+        if (!updatedUser) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found.",
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: "Profile updated successfully.",
+            data: {
+                id: updatedUser.id,
+                username: updatedUser.username,
+                role: updatedUser.role,
+                telegramChatId: updatedUser.telegramChatId,
+            },
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update profile.",
+        });
+    }
+};
+
+export { login, register, getProfile, updateProfile };
 export { refreshToken, logout };

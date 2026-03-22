@@ -1,4 +1,5 @@
 import config from "./config";
+import { startNotificationCron, startNotificationTestCron } from "./jobs/notification.cron";
 import { startTracing } from "./lib/tracing";
 
 const PORT = config.port;
@@ -8,6 +9,8 @@ async function bootstrap() {
     const { default: app } = await import("./app");
 
     app.listen(PORT, () => {
+        void startNotificationCron();
+        startNotificationTestCron();
         console.log(`
 ========================================
     Server is running on port ${PORT}

@@ -7,6 +7,7 @@ import {
     listTransactionsByMonth,
     updateTransactionForUser,
     getSavingsRateForUser,
+    getMonthlySpendingTrendForUser,
 } from "../services/transaction.service";
 import { getSavingGoalByUser } from "../services/budget.service";
 import {
@@ -199,7 +200,11 @@ const createTransaction = async (
     }
 
     try {
-        const result = await createTransactionForUser(userId, validation.payload);
+        const result = await createTransactionForUser(
+            userId,
+            validation.payload,
+            String(req.user?.username || "").trim() || undefined,
+        );
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
@@ -248,6 +253,7 @@ const createTransactionsBulk = async (
         const result = await createTransactionsBulkForUser(
             userId,
             validation.payload,
+            String(req.user?.username || "").trim() || undefined,
         );
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
@@ -306,6 +312,7 @@ const updateTransaction = async (
             userId,
             transactionId,
             validation.payload,
+            String(req.user?.username || "").trim() || undefined,
         );
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
@@ -426,6 +433,33 @@ const getSavingsRate = async (
     }
 };
 
+const getSpendingTrend = async (
+    req: Request,
+    res: Response,
+): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const { month, year, error } = parseMonthYear(req.query.month, req.query.year);
+
+    if (error) {
+        return res.status(400).json({ success: false, message: error });
+    }
+
+    try {
+        const trend = await getMonthlySpendingTrendForUser(userId, month, year);
+        return res.json({ success: true, data: trend });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: (error as Error).message || "Failed to load spending trend.",
+        });
+    }
+};
+
 export {
     getTransactions,
     queryTransactions,
@@ -434,4 +468,5 @@ export {
     updateTransaction,
     removeTransaction,
     getSavingsRate,
+    getSpendingTrend,
 };

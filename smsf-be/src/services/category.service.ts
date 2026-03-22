@@ -1,6 +1,7 @@
 import { ICategory, TypeCategoryKind } from "../interfaces/category.interface";
 import {
     createCategoryForUser,
+    findCategoryByIdForUser,
     findCategoryByUserAndName,
     listCategoriesByUser,
 } from "../repositories/category.repository";
@@ -26,4 +27,12 @@ const ensureCategoryByName = async (
     return createCategoryForUser(userId, name, type);
 };
 
-export { getCategoriesByUser, ensureCategoryByName };
+const getCategoryById = async (userId: string, categoryId: string): Promise<ICategory | undefined> => {
+    if (!categoryId) {
+        return undefined;
+    }
+
+    return findCategoryByIdForUser(userId, categoryId);
+};
+
+export { getCategoriesByUser, ensureCategoryByName, getCategoryById };

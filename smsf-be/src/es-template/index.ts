@@ -1,5 +1,6 @@
 import runInitBudgetES from './budget-template';
 import runInitCategoryES from './category-template';
+import runInitNotificationES from './notification-template';
 import runInitTransactionES from './transaction-template';
 import runInitUserES from './user-template';
 import runInitWalletES from './wallet-template';
@@ -7,15 +8,17 @@ import runInitWalletES from './wallet-template';
 export {
     runInitBudgetES,
     runInitCategoryES,
+    runInitNotificationES,
     runInitTransactionES,
     runInitUserES,
     runInitWalletES,
 };
 
 export default async function runInitAllEsTemplates(isUpdateCurrentIndex = true) {
-    // await runInitUserES(isUpdateCurrentIndex);
-    await runInitCategoryES(isUpdateCurrentIndex);
+    await runInitUserES(isUpdateCurrentIndex);
+    // await runInitCategoryES(isUpdateCurrentIndex);
     // await runInitTransactionES(isUpdateCurrentIndex);
+    await runInitNotificationES(isUpdateCurrentIndex);
     // await runInitBudgetES(isUpdateCurrentIndex);
     // await runInitWalletES(isUpdateCurrentIndex);
 }
