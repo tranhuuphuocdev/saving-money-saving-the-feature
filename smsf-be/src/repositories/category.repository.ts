@@ -1,15 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { ICategory, TypeCategoryKind } from "../interfaces/category.interface";
 import { esClient, withPrefix } from "../lib/es-client";
-import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
 
 const categoryAlias = withPrefix("category");
 
 const categoryIndexByTimestamp = (timestamp: number): string => {
-    return withPrefix(
-        buildIndexName("category-", timestamp, TIME_FRAME_FORMAT.MONTH),
-    );
-};
+    return 'category';
+}
 
 const mapCategorySource = (source: Record<string, unknown>): ICategory => {
     return {

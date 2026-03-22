@@ -13,11 +13,11 @@ export {
 };
 
 export default async function runInitAllEsTemplates(isUpdateCurrentIndex = true) {
-    await runInitUserES(isUpdateCurrentIndex);
+    // await runInitUserES(isUpdateCurrentIndex);
     await runInitCategoryES(isUpdateCurrentIndex);
-    await runInitTransactionES(isUpdateCurrentIndex);
-    await runInitBudgetES(isUpdateCurrentIndex);
-    await runInitWalletES(isUpdateCurrentIndex);
+    // await runInitTransactionES(isUpdateCurrentIndex);
+    // await runInitBudgetES(isUpdateCurrentIndex);
+    // await runInitWalletES(isUpdateCurrentIndex);
 }
 
 runInitAllEsTemplates();

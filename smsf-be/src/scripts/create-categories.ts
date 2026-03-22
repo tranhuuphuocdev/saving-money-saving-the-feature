@@ -31,7 +31,7 @@ const DEFAULT_CATEGORIES: ICategorySeed[] = [
 const userId = process.env.SEED_USER_ID || "app-default";
 
 const now = Date.now();
-const categoryIndex = buildIndexName("category-", now, TIME_FRAME_FORMAT.MONTH);
+const categoryIndex = 'category';
 
 const createCategory = async (name: string, type: TypeCategoryKind): Promise<void> => {
     let existing: { _source?: Record<string, unknown> } | undefined;

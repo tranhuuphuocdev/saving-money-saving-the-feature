@@ -23,11 +23,11 @@ const categoryMappings = {
 export default async function runInitCategoryES(isUpdateCurrentIndex = true) {
     await initEs(
         'category-template',
-        'category-*',
         'category',
+        'category-alias',
         categoryMappings,
         '1s',
         isUpdateCurrentIndex,
-        TIME_FRAME_FORMAT.MONTH
+        TIME_FRAME_FORMAT.NONE
     );
 }
