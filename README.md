@@ -151,7 +151,7 @@ SEED_USER_ID=app-default npm run seed:wallets
 
 Sample login after seed:
 - Username: `rampo`
-- Password: `123456`
+- Password: `123123`
 
 ### 5) Frontend setup
 
