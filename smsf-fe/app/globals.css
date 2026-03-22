@@ -1,0 +1,274 @@
+:root {
+    --background: #071120;
+    --background-soft: #0d1b33;
+    --card: rgba(10, 22, 44, 0.88);
+    --card-strong: rgba(8, 19, 38, 0.96);
+    --foreground: #f4f8ff;
+    --muted: #99a9c6;
+    --primary: #2563eb;
+    --primary-strong: #1d4ed8;
+    --primary-soft: rgba(37, 99, 235, 0.16);
+    --accent: #38bdf8;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --border: rgba(148, 163, 184, 0.18);
+    --shadow: 0 24px 60px rgba(2, 8, 23, 0.45);
+    --accent-text: #93c5fd;
+    --surface-soft: rgba(15, 23, 42, 0.74);
+    --surface-base: rgba(12, 20, 40, 0.86);
+    --surface-softest: rgba(10, 18, 36, 0.64);
+    --surface-strong: rgba(6, 14, 28, 0.96);
+    --surface-border: rgba(96, 165, 250, 0.12);
+    --chip-bg: rgba(37, 99, 235, 0.14);
+    --chip-border: rgba(96, 165, 250, 0.28);
+    --theme-gradient-start: rgba(37, 99, 235, 0.95);
+    --theme-gradient-end: rgba(56, 189, 248, 0.88);
+    --theme-panel-gradient-start: rgba(30, 64, 175, 0.85);
+    --theme-panel-gradient-end: rgba(14, 165, 233, 0.7);
+    --theme-icon-surface: rgba(37, 99, 235, 0.16);
+    --theme-icon-border: rgba(96, 165, 250, 0.22);
+    --theme-nav-icon: #9fb0ce;
+    --theme-nav-active: #eff6ff;
+}
+
+:root[data-theme='light'] {
+    --background: #fff7fb;
+    --background-soft: #ffe7f2;
+    --card: rgba(255, 250, 253, 0.9);
+    --card-strong: rgba(255, 244, 249, 0.98);
+    --foreground: #4a1840;
+    --muted: #7a4f6d;
+    --primary: #ec4899;
+    --primary-strong: #db2777;
+    --primary-soft: rgba(236, 72, 153, 0.12);
+    --accent: #f472b6;
+    --danger: #ef4444;
+    --success: #16a34a;
+    --border: rgba(236, 72, 153, 0.14);
+    --shadow: 0 20px 52px rgba(236, 72, 153, 0.12);
+    --accent-text: #c0267e;
+    --surface-soft: rgba(255, 239, 247, 0.82);
+    --surface-base: rgba(255, 242, 250, 0.9);
+    --surface-softest: rgba(255, 247, 252, 0.72);
+    --surface-strong: rgba(255, 246, 251, 0.96);
+    --surface-border: rgba(244, 114, 182, 0.14);
+    --chip-bg: rgba(236, 72, 153, 0.12);
+    --chip-border: rgba(244, 114, 182, 0.26);
+    --theme-gradient-start: rgba(236, 72, 153, 0.92);
+    --theme-gradient-end: rgba(251, 113, 133, 0.88);
+    --theme-panel-gradient-start: rgba(244, 114, 182, 0.86);
+    --theme-panel-gradient-end: rgba(251, 191, 36, 0.36);
+    --theme-icon-surface: rgba(236, 72, 153, 0.12);
+    --theme-icon-border: rgba(244, 114, 182, 0.22);
+    --theme-nav-icon: #a8557b;
+    --theme-nav-active: #fff7fb;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+*::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+* {
+    scrollbar-width: none;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background-color: var(--background);
+    background:
+        radial-gradient(circle at top, rgba(56, 189, 248, 0.18), transparent 30%),
+        radial-gradient(circle at bottom, rgba(37, 99, 235, 0.24), transparent 35%),
+        linear-gradient(180deg, #050c18 0%, #08101f 45%, #071120 100%);
+    color: var(--foreground);
+    font-family: var(--font-plus-jakarta), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+html[data-theme='light'],
+html[data-theme='light'] body {
+    background-color: var(--background);
+    background:
+        radial-gradient(circle at top, rgba(251, 113, 133, 0.18), transparent 28%),
+        radial-gradient(circle at bottom, rgba(244, 114, 182, 0.18), transparent 34%),
+        linear-gradient(180deg, #fff9fc 0%, #fff3f8 48%, #ffeef6 100%);
+}
+
+body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+}
+
+html {
+    overscroll-behavior-y: none;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+button,
+a,
+[role='button'],
+svg,
+path {
+    -webkit-tap-highlight-color: transparent;
+}
+
+button {
+    cursor: pointer;
+}
+
+.pie-chart-touch-surface .recharts-wrapper:focus,
+.pie-chart-touch-surface .recharts-wrapper *:focus,
+.pie-chart-touch-surface svg:focus,
+.pie-chart-touch-surface path:focus,
+.pie-chart-touch-surface g:focus {
+    outline: none !important;
+}
+
+input::placeholder {
+    color: #6f87ad;
+}
+
+:root[data-theme='light'] input::placeholder {
+    color: #b887a7;
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.app-shell {
+    min-height: 100svh;
+    min-height: 100dvh;
+    height: auto;
+    overflow-y: visible;
+    overscroll-behavior-y: none;
+}
+
+.glass-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+}
+
+.card-strong {
+    background: var(--card-strong);
+}
+
+.tech-grid::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(56, 189, 248, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.07) 1px, transparent 1px);
+    background-size: 26px 26px;
+    mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 85%);
+    pointer-events: none;
+}
+
+.page-container {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 16px 12px 118px;
+}
+
+.category-marquee-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 18px;
+    white-space: nowrap;
+    min-width: 100%;
+    animation: category-marquee 16s linear infinite;
+}
+
+.category-marquee-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--foreground);
+    font-size: 11.5px;
+    font-weight: 700;
+}
+
+@media (min-width: 768px) {
+    .page-container {
+        padding: 20px 16px 136px;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 {
+        font-size: 1.8rem;
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes category-marquee {
+    0% {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+@keyframes transaction-item-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes list-shimmer {
+    from {
+        background-position: 0% 50%;
+    }
+    to {
+        background-position: 100% 50%;
+    }
+}
