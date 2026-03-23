@@ -30,11 +30,11 @@ const transactionMappings = {
 export default async function runInitTransactionES(isUpdateCurrentIndex = true) {
     await initEs(
         'transaction-template',
-        'transaction-*',
         'transaction',
+        'transaction-alias',
         transactionMappings,
         '1s',
         isUpdateCurrentIndex,
-        TIME_FRAME_FORMAT.MONTH
+        TIME_FRAME_FORMAT.NONE
     );
 }

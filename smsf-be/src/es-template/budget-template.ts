@@ -29,11 +29,11 @@ const budgetMappings = {
 export default async function runInitBudgetES(isUpdateCurrentIndex = true) {
     await initEs(
         'budget-template',
-        'budget-*',
         'budget',
+        'budget-alias',
         budgetMappings,
         '1s',
         isUpdateCurrentIndex,
-        TIME_FRAME_FORMAT.MONTH
+        TIME_FRAME_FORMAT.NONE
     );
 }

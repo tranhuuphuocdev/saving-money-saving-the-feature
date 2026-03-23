@@ -22,11 +22,11 @@ const walletMappings = {
 export default async function runInitWalletES(isUpdateCurrentIndex = true) {
     await initEs(
         'wallet-template',
-        'wallet-*',
         'wallet',
+        'wallet-alias',
         walletMappings,
         '1s',
         isUpdateCurrentIndex,
-        TIME_FRAME_FORMAT.MONTH
+        TIME_FRAME_FORMAT.NONE
     );
 }

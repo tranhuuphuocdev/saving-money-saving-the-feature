@@ -5,7 +5,7 @@ import { esClient, withPrefix } from "../lib/es-client";
 const categoryAlias = withPrefix("category");
 
 const categoryIndexByTimestamp = (timestamp: number): string => {
-    return 'category';
+    return categoryAlias;
 }
 
 const mapCategorySource = (source: Record<string, unknown>): ICategory => {

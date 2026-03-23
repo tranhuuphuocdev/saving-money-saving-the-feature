@@ -542,7 +542,7 @@ export function DashboardShell() {
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                                 <div style={{ borderRadius: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '10px 12px' }}>
-                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Saving goal</div>
+                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Mục tiêu</div>
                                     <div style={{ fontSize: 14, fontWeight: 900, marginTop: 4 }}>{formatCurrencyVND(savingsMetrics?.savingsGoal ?? 0)}</div>
                                 </div>
                                 <div style={{ borderRadius: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '10px 12px' }}>

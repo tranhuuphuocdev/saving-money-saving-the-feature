@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import axios from "axios";
 import config from "../config";
-import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
+import { withPrefix } from "../lib/es-client";
 
 type TypeCategoryKind = "income" | "expense";
 
@@ -31,7 +31,7 @@ const DEFAULT_CATEGORIES: ICategorySeed[] = [
 const userId = process.env.SEED_USER_ID || "app-default";
 
 const now = Date.now();
-const categoryIndex = 'category';
+const categoryIndex = withPrefix("category");
 
 const createCategory = async (name: string, type: TypeCategoryKind): Promise<void> => {
     let existing: { _source?: Record<string, unknown> } | undefined;

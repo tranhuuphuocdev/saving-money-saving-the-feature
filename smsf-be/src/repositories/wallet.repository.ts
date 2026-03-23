@@ -1,8 +1,7 @@
 import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
 import { esClient, withPrefix } from "../lib/es-client";
-import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
 
-const walletAlias = withPrefix("wallet");
+const walletIndex = withPrefix("wallet");
 
 const mapWalletSource = (source: Record<string, unknown>): IWallet => {
     return {
@@ -16,17 +15,13 @@ const mapWalletSource = (source: Record<string, unknown>): IWallet => {
     };
 };
 
-const walletIndexByTimestamp = (timestamp: number): string => {
-    return withPrefix(
-        buildIndexName("wallet-", timestamp, TIME_FRAME_FORMAT.MONTH),
-    );
+const isIndexNotFoundError = (error: unknown): boolean => {
+    return (error as { response?: { status?: number } }).response?.status === 404;
 };
 
 const upsertWallet = async (wallet: IWallet): Promise<IWallet> => {
-    const indexName = walletIndexByTimestamp(wallet.updatedAt || Date.now());
-
     await esClient.put(
-        `/${indexName}/_doc/${wallet.id}?refresh=true`,
+        `/${walletIndex}/_doc/${wallet.id}?refresh=true`,
         {
             wId: wallet.id,
             uId: String(wallet.userId),
@@ -47,12 +42,10 @@ const upsertWalletsBulk = async (wallets: IWallet[]): Promise<void> => {
     }
 
     const operations = wallets.flatMap((wallet) => {
-        const indexName = walletIndexByTimestamp(wallet.updatedAt || Date.now());
-
         return [
             {
                 index: {
-                    _index: indexName,
+                    _index: walletIndex,
                     _id: wallet.id,
                 },
             },
@@ -76,110 +69,137 @@ const upsertWalletsBulk = async (wallets: IWallet[]): Promise<void> => {
 };
 
 const getWalletsByUserId = async (userId: string): Promise<IWallet[]> => {
-    const response = await esClient.post(`/${walletAlias}/_search`, {
-        size: 200,
-        query: {
-            term: {
-                uId: String(userId),
+    try {
+        const response = await esClient.post(`/${walletIndex}/_search`, {
+            size: 200,
+            query: {
+                term: {
+                    uId: String(userId),
+                },
             },
-        },
-        sort: [{ updatedAt: { order: "desc" } }],
-    });
+            sort: [{ updatedAt: { order: "desc" } }],
+        });
 
-    const hits =
-        (response.data?.hits?.hits as Array<{ _source: Record<string, unknown> }>) ||
-        [];
+        const hits =
+            (response.data?.hits?.hits as Array<{ _source: Record<string, unknown> }>) ||
+            [];
 
-    const seen = new Set<string>();
-    const wallets: IWallet[] = [];
+        const seen = new Set<string>();
+        const wallets: IWallet[] = [];
 
-    for (const hit of hits) {
-        const wallet = mapWalletSource(hit._source);
-        if (!seen.has(wallet.id)) {
-            seen.add(wallet.id);
-            wallets.push(wallet);
+        for (const hit of hits) {
+            const wallet = mapWalletSource(hit._source);
+            if (!seen.has(wallet.id)) {
+                seen.add(wallet.id);
+                wallets.push(wallet);
+            }
         }
-    }
 
-    return wallets;
+        return wallets;
+    } catch (error) {
+        if (isIndexNotFoundError(error)) {
+            return [];
+        }
+
+        throw error;
+    }
 };
 
 const getWalletSummaryByUserId = async (
     userId: string,
 ): Promise<IWalletSummary> => {
-    const response = await esClient.post(`/${walletAlias}/_search`, {
-        size: 0,
-        query: {
-            term: {
-                uId: String(userId),
-            },
-        },
-        aggs: {
-            total_amount: {
-                sum: {
-                    field: "amount",
+    try {
+        const response = await esClient.post(`/${walletIndex}/_search`, {
+            size: 0,
+            query: {
+                term: {
+                    uId: String(userId),
                 },
             },
-            wallets_by_id: {
-                terms: {
-                    field: "wId",
-                    size: 200,
+            aggs: {
+                total_amount: {
+                    sum: {
+                        field: "amount",
+                    },
                 },
-                aggs: {
-                    latest_wallet: {
-                        top_hits: {
-                            size: 1,
-                            sort: [{ updatedAt: { order: "desc" } }],
+                wallets_by_id: {
+                    terms: {
+                        field: "wId",
+                        size: 200,
+                    },
+                    aggs: {
+                        latest_wallet: {
+                            top_hits: {
+                                size: 1,
+                                sort: [{ updatedAt: { order: "desc" } }],
+                            },
                         },
                     },
                 },
             },
-        },
-    });
+        });
 
-    const buckets =
-        (response.data?.aggregations?.wallets_by_id?.buckets as Array<{
-            latest_wallet?: {
-                hits?: {
-                    hits?: Array<{ _source: Record<string, unknown> }>;
+        const buckets =
+            (response.data?.aggregations?.wallets_by_id?.buckets as Array<{
+                latest_wallet?: {
+                    hits?: {
+                        hits?: Array<{ _source: Record<string, unknown> }>;
+                    };
                 };
+            }>) || [];
+
+        const wallets = buckets
+            .map((bucket) => bucket.latest_wallet?.hits?.hits?.[0]?._source)
+            .filter(Boolean)
+            .map((source) => mapWalletSource(source as Record<string, unknown>));
+
+        return {
+            wallets,
+            totalAmount: response.data?.aggregations?.total_amount?.value || 0,
+        };
+    } catch (error) {
+        if (isIndexNotFoundError(error)) {
+            return {
+                wallets: [],
+                totalAmount: 0,
             };
-        }>) || [];
+        }
 
-    const wallets = buckets
-        .map((bucket) => bucket.latest_wallet?.hits?.hits?.[0]?._source)
-        .filter(Boolean)
-        .map((source) => mapWalletSource(source as Record<string, unknown>));
-
-    return {
-        wallets,
-        totalAmount: response.data?.aggregations?.total_amount?.value || 0,
-    };
+        throw error;
+    }
 };
 
 const getWalletById = async (
     userId: string,
     walletId: string,
 ): Promise<IWallet | undefined> => {
-    const response = await esClient.post(`/${walletAlias}/_search`, {
-        size: 1,
-        query: {
-            bool: {
-                filter: [
-                    { term: { uId: String(userId) } },
-                    { term: { wId: walletId } },
-                ],
+    try {
+        const response = await esClient.post(`/${walletIndex}/_search`, {
+            size: 1,
+            query: {
+                bool: {
+                    filter: [
+                        { term: { uId: String(userId) } },
+                        { term: { wId: walletId } },
+                    ],
+                },
             },
-        },
-        sort: [{ updatedAt: { order: "desc" } }],
-    });
+            sort: [{ updatedAt: { order: "desc" } }],
+        });
 
-    const hit = response.data?.hits?.hits?.[0];
-    if (!hit?._source) {
+        const hit = response.data?.hits?.hits?.[0];
+        if (hit?._source) {
+            return mapWalletSource(hit._source);
+        }
+
         return undefined;
-    }
+    } catch (error) {
+        if (isIndexNotFoundError(error)) {
+            return undefined;
+        }
 
-    return mapWalletSource(hit._source);
+        throw error;
+    }
 };
 
 const updateWalletBalance = async (

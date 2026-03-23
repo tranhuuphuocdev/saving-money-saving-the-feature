@@ -21,6 +21,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTotalWalletBalance(summary.totalAmount);
     }, []);
 
+    const refreshWalletsSafely = useCallback(async () => {
+        try {
+            await refreshWallets();
+        } catch {
+            setWallets([]);
+            setTotalWalletBalance(0);
+        }
+    }, [refreshWallets]);
+
     const refreshProfile = useCallback(async () => {
         const profile = await getProfileRequest();
         const accessToken = getAccessToken();
@@ -42,6 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!accessToken || !refreshToken) {
                 clearSession();
                 setUser(null);
+                setWallets([]);
+                setTotalWalletBalance(0);
                 return;
             }
 
@@ -51,23 +62,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             try {
                 await refreshProfile();
-                await refreshWallets();
             } catch {
                 const nextToken = await refreshAccessToken();
 
                 if (!nextToken) {
                     clearSession();
                     setUser(null);
+                    setWallets([]);
+                    setTotalWalletBalance(0);
                     return;
                 }
 
                 await refreshProfile();
-                await refreshWallets();
             }
+
+            await refreshWalletsSafely();
         } finally {
             setIsLoading(false);
         }
-    }, [refreshProfile, refreshWallets]);
+    }, [refreshProfile, refreshWalletsSafely]);
 
     useEffect(() => {
         void bootstrap();
@@ -76,14 +89,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const login = useCallback(async (username: string, password: string) => {
         const data = await loginRequest(username, password);
         setUser(data.user);
-        await refreshWallets();
-    }, [refreshWallets]);
+        void refreshWalletsSafely();
+    }, [refreshWalletsSafely]);
 
     const register = useCallback(async (username: string, password: string, telegramChatId?: string) => {
         const data = await registerRequest(username, password, telegramChatId);
         setUser(data.user);
-        await refreshWallets();
-    }, [refreshWallets]);
+        void refreshWalletsSafely();
+    }, [refreshWalletsSafely]);
 
     const updateTelegramChatId = useCallback(async (telegramChatId?: string) => {
         const profile = await updateTelegramChatIdRequest(telegramChatId);

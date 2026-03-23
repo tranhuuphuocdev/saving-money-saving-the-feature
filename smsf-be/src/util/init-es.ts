@@ -1,6 +1,5 @@
 import axios from 'axios';
 import config from '../config';
-import { buildIndexName } from '../util';
 const myArgs = process.argv.slice(2);
 
 const indexTemplateFilterList = myArgs && myArgs.length > 0 ? myArgs[0].split(',') : ['all'];
@@ -51,9 +50,9 @@ export async function initEs(
         if (updateMappingCurrentIndex) {
             let currentIndexName = indexTemplatePattern.replace('*', '');
             try {
-                if (currentIndexName.endsWith('-')) {
-                    currentIndexName = buildIndexName(currentIndexName, Date.now(), timeFormat);
-                }
+                currentIndexName = currentIndexName.endsWith('-')
+                    ? currentIndexName.slice(0, -1)
+                    : currentIndexName;
 
                 console.log('Update current index:', currentIndexName);
                 const updateCurrentIndexResponse = await axios({

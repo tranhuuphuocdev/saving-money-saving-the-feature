@@ -16,7 +16,7 @@ type IUserSource = {
     teleChatId?: string;
 };
 
-const userIndexes = [withPrefix("user"), withPrefix("user-*")];
+const userIndexes = [withPrefix("user")];
 
 const mapUserSource = (source: IUserSource): IUserProfile => {
     return {

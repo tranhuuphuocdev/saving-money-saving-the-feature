@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import axios from 'axios';
 import config from '../config';
+import { withPrefix } from '../lib/es-client';
 import { ICreateUserPayload } from '../interfaces/create-user.interface';
-import { TIME_FRAME_FORMAT, buildIndexName } from '../util';
 
 type IWalletType = 'momo' | 'bank' | 'cash';
 
@@ -27,7 +27,7 @@ function hashPassword(password: string): string {
 }
 
 async function createDefaultWalletsForUser(userId: string, timestamp: number): Promise<void> {
-    const walletIndexName = buildIndexName('wallet-', timestamp, TIME_FRAME_FORMAT.MONTH);
+    const walletIndexName = withPrefix('wallet');
 
     for (const wallet of DEFAULT_WALLETS) {
         const walletPayload: ICreateWalletPayload = {
@@ -74,7 +74,7 @@ async function createUser(): Promise<void> {
         isDeleted: false,
     };
 
-    const indexName = buildIndexName('user-', Date.now(), TIME_FRAME_FORMAT.MONTH);
+    const indexName = withPrefix('user');
     const url = `${config.ES_URL}/${indexName}/_doc/${payload.uId}`;
 
     const response = await axios({

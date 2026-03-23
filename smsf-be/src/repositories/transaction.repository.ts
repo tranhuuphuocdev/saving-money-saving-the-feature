@@ -7,19 +7,12 @@ import {
     IUpdateTransactionPayload,
 } from "../interfaces/transaction.interface";
 import { esClient, withPrefix } from "../lib/es-client";
-import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
 
 const buildId = (): string => {
     return `txn-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 };
 
 const transactionAlias = withPrefix("transaction");
-
-const transactionIndexByTimestamp = (timestamp: number): string => {
-    return withPrefix(
-        buildIndexName("transaction-", timestamp, TIME_FRAME_FORMAT.MONTH),
-    );
-};
 
 const mapTransactionSource = (
     source: Record<string, unknown>,
@@ -52,10 +45,9 @@ const getTransactionsByUserAndMonth = (
 ): Promise<ITransaction[]> => {
     const from = new Date(year, month - 1, 1).getTime();
     const to = new Date(year, month, 1).getTime() - 1;
-    const indexName = transactionIndexByTimestamp(from);
 
     return esClient
-        .post(`/${indexName}/_search`, {
+        .post(`/${transactionAlias}/_search`, {
             size: 500,
             query: {
                 bool: {
@@ -237,10 +229,8 @@ const createTransaction = (
         updatedAt: now,
     };
 
-    const indexName = transactionIndexByTimestamp(transaction.timestamp);
-
     return esClient
-        .put(`/${indexName}/_doc/${transaction.id}?refresh=true`, {
+        .put(`/${transactionAlias}/_doc/${transaction.id}?refresh=true`, {
             txnId: transaction.id,
             uId: String(transaction.userId),
             uName: transaction.userDisplayName || "",
@@ -294,11 +284,10 @@ const createTransactionsBulk = (
     });
 
     const operations = transactions.flatMap((transaction) => {
-        const indexName = transactionIndexByTimestamp(transaction.timestamp);
         return [
             {
                 index: {
-                    _index: indexName,
+                    _index: transactionAlias,
                     _id: transaction.id,
                 },
             },
@@ -374,10 +363,8 @@ const updateTransaction = (
 
         transaction.updatedAt = Date.now();
 
-        const nextIndex = transactionIndexByTimestamp(transaction.timestamp);
-
         return esClient
-            .put(`/${nextIndex}/_doc/${transaction.id}?refresh=true`, {
+            .put(`/${transactionAlias}/_doc/${transaction.id}?refresh=true`, {
                 txnId: transaction.id,
                 uId: String(transaction.userId),
                 uName: transaction.userDisplayName || "",
@@ -393,16 +380,7 @@ const updateTransaction = (
                 updatedAt: transaction.updatedAt,
                 isDeleted: false,
             })
-            .then(async () => {
-                if (nextIndex !== transaction._index) {
-                    try {
-                        await esClient.delete(
-                            `/${transaction._index}/_doc/${transaction.id}?refresh=true`,
-                        );
-                    } catch {
-                        // noop
-                    }
-                }
+            .then(() => {
                 return transaction;
             });
     });

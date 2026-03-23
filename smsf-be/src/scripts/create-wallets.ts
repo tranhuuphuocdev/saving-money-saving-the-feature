@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import axios from 'axios';
 import config from '../config';
-import { TIME_FRAME_FORMAT, buildIndexName } from '../util';
+import { withPrefix } from '../lib/es-client';
 
 interface ISeedWallet {
     wId: string;
@@ -16,7 +16,7 @@ interface ISeedWallet {
 async function createWallets(): Promise<void> {
     const now = Date.now();
     const userId = process.env.SEED_USER_ID || '6629d893-5736-41d1-ac1d-8b625159d01b';
-    const indexName = buildIndexName('wallet-', now, TIME_FRAME_FORMAT.MONTH);
+    const indexName = withPrefix('wallet');
 
     const wallets: ISeedWallet[] = [
         {

@@ -24,11 +24,11 @@ const userMappings = {
 export default async function runInitUserES(isUpdateCurrentIndex = true) {
     await initEs(
         'user-template',
-        'user-*',
         'user',
+        'user-alias',
         userMappings,
         '1s',
         isUpdateCurrentIndex,
-        TIME_FRAME_FORMAT.MONTH
+        TIME_FRAME_FORMAT.NONE
     );
 }

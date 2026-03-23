@@ -20,7 +20,6 @@ import {
 } from "../lib/auth-token-store";
 import { esClient, withPrefix } from "../lib/es-client";
 import { listWalletsByUserId } from "../services/wallet.service";
-import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
 
 type IUserSource = {
     uId: string;
@@ -51,7 +50,7 @@ const mapUserSource = (source: IUserSource): IUser => {
 };
 
 const searchUserDocument = async (query: Record<string, unknown>): Promise<IUserHit | undefined> => {
-    const indexes = [withPrefix("user"), withPrefix("user-*")];
+    const indexes = [withPrefix("user")];
 
     for (const indexName of indexes) {
         try {
@@ -117,9 +116,7 @@ const findUserById = async (userId: string): Promise<IUser | undefined> => {
 };
 
 const createUserDocument = async (payload: IUserSource): Promise<void> => {
-    const indexName = withPrefix(
-        buildIndexName("user-", payload.createdAt || Date.now(), TIME_FRAME_FORMAT.MONTH),
-    );
+    const indexName = withPrefix("user");
 
     await esClient.put(`/${indexName}/_doc/${payload.uId}?refresh=true`, payload);
 };

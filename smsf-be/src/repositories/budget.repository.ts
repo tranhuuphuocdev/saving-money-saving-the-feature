@@ -1,18 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { IBudget } from "../interfaces/budget.interface";
 import { esClient, withPrefix } from "../lib/es-client";
-import { TIME_FRAME_FORMAT, buildIndexName } from "../util";
 
 interface IBudgetDocument extends IBudget {
     _index?: string;
 }
 
 const budgetAlias = withPrefix("budget");
-
-const budgetIndexByPeriod = (month: number, year: number): string => {
-    const timestamp = new Date(year, month - 1, 1, 12, 0, 0, 0).getTime();
-    return withPrefix(buildIndexName("budget-", timestamp, TIME_FRAME_FORMAT.MONTH));
-};
 
 const mapBudgetSource = (source: Record<string, unknown>): IBudget => {
     return {
@@ -96,9 +90,7 @@ const upsertSavingBudgetByUser = async (
         updatedAt: now,
     };
 
-    const indexName = budgetIndexByPeriod(month, year);
-
-    await esClient.put(`/${indexName}/_doc/${budget.id}?refresh=true`, {
+    await esClient.put(`/${budgetAlias}/_doc/${budget.id}?refresh=true`, {
         bId: budget.id,
         uId: budget.userId,
         cateId: budget.categoryId,
@@ -111,14 +103,6 @@ const upsertSavingBudgetByUser = async (
         createdAt: budget.createdAt,
         updatedAt: budget.updatedAt,
     });
-
-    if (existing?._index && existing._index !== indexName) {
-        try {
-            await esClient.delete(`/${existing._index}/_doc/${existing.id}?refresh=true`);
-        } catch {
-            // noop
-        }
-    }
 
     return budget;
 };
