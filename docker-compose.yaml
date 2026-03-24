@@ -1,0 +1,38 @@
+services:
+  smsf-be:
+    image: tranhuuphuoc22/hthouse:smsf-be-1.0
+    container_name: smsf-be
+    ports:
+      - "${SMSF_BE_PORT:-3000}:3000"
+    volumes:
+      - ./smsf-be/.env:/app/.env
+      - smsf-be-logs:/var/log/services/smsf-be
+    networks:
+      - smsf-monitoring
+    depends_on:
+      - loki
+
+  smsf-fe:
+    image: tranhuuphuoc22/hthouse:smsf-fe-1.0
+    container_name: smsf-fe
+    ports:
+      - "${SMSF_FE_PORT:-3033}:3033"
+    volumes:
+      - ./smsf-fe/.env:/app/.env
+      - smsf-fe-logs:/var/log/services/smsf-fe
+    networks:
+      - smsf-monitoring
+    depends_on:
+      - loki
+
+networks:
+  smsf-monnitoring:
+    name: smsf-monitor
+    driver: bridge
+
+volumes:
+  loki-data:
+  prometheus-data:
+  grafana-data:
+  promtail-data:
+    name: promtail-data

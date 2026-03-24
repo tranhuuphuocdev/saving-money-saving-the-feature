@@ -202,6 +202,39 @@ const getWalletById = async (
     }
 };
 
+const findWalletByUserAndName = async (
+    userId: string,
+    walletName: string,
+): Promise<IWallet | undefined> => {
+    try {
+        const response = await esClient.post(`/${walletIndex}/_search`, {
+            size: 1,
+            query: {
+                bool: {
+                    filter: [
+                        { term: { uId: String(userId) } },
+                        { term: { "wName.keyword": walletName } },
+                    ],
+                },
+            },
+            sort: [{ updatedAt: { order: "desc" } }],
+        });
+
+        const hit = response.data?.hits?.hits?.[0];
+        if (hit?._source) {
+            return mapWalletSource(hit._source);
+        }
+
+        return undefined;
+    } catch (error) {
+        if (isIndexNotFoundError(error)) {
+            return undefined;
+        }
+
+        throw error;
+    }
+};
+
 const updateWalletBalance = async (
     userId: string,
     walletId: string,
@@ -225,6 +258,7 @@ const updateWalletBalance = async (
 export {
     getWalletsByUserId,
     getWalletById,
+    findWalletByUserAndName,
     updateWalletBalance,
     upsertWallet,
     upsertWalletsBulk,

@@ -12,8 +12,12 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-    title: 'SMSF | Smart Expense Manager',
-    description: 'Mobile-first expense management dashboard',
+    title: 'Sâu Ciu',
+    description: 'Tiết kiệm thông minh, tự do tài chính',
+    icons: {
+        icon: '/icon.svg',
+        shortcut: '/icon.svg',
+    },
 };
 
 export const viewport: Viewport = {

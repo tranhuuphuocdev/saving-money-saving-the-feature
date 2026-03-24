@@ -16,7 +16,7 @@ import { CalendarShell } from '@/features/calendar/components/calendar-shell';
 import { TransactionsTab } from '@/features/dashboard/components/transactions-tab';
 import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest, getSpendingTrendRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
-import { createNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
+import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
 import { useAuth } from '@/providers/auth-provider';
 import { ICategoryItem } from '@/types/calendar';
 import { IExpenseCategoryItem, IRecentTransaction, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
@@ -299,6 +299,14 @@ export function DashboardShell() {
         [refreshWallets],
     );
 
+    const handleDeletePaymentNotification = useCallback(
+        async (notificationId: string) => {
+            await deleteNotificationRequest(notificationId);
+            window.dispatchEvent(new CustomEvent('notification:changed'));
+        },
+        [],
+    );
+
     useEffect(() => {
         return () => {
             if (firstCalendarDelayTimerRef.current) {
@@ -357,7 +365,7 @@ export function DashboardShell() {
                                 <div style={{ fontWeight: 800, fontSize: 13.5 }}>{wallet.name}</div>
                                 <div style={{ color: 'var(--muted)', fontSize: 11.5, textTransform: 'uppercase' }}>{wallet.type}</div>
                             </div>
-                            <div style={{ fontWeight: 900, fontSize: 13.5 }}>{formatCurrencyVND(wallet.balance)}</div>
+                            <div style={{ fontWeight: 900, fontSize: 'clamp(11px, 2.8vw, 13.5px)', whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrencyVND(wallet.balance)}</div>
                         </div>
                     ))
                 )}
@@ -490,13 +498,14 @@ export function DashboardShell() {
                 onClose={() => setIsNotificationOpen(false)}
                 onCreateNotification={handleCreatePaymentNotification}
                 onPayNotification={handlePayPaymentNotification}
+                onDeleteNotification={handleDeletePaymentNotification}
             />
             <main className="app-shell">
                 <div className="page-container">
                     <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
                         <div>
                             <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>Xin chào trở lại</div>
-                            <div style={{ fontSize: 21, fontWeight: 900, marginTop: 5 }}>{user?.username ?? 'User'}</div>
+                            <div style={{ fontSize: 21, fontWeight: 900, marginTop: 5 }}>{user?.displayName || user?.username || 'User'}</div>
                             <div style={{ color: 'var(--accent-text)', marginTop: 5, fontWeight: 700, fontSize: 12.5 }}>Trung tâm quản lý tài chính</div>
                         </div>
                         <IconButton onClick={() => setIsNotificationOpen(true)}>
@@ -543,11 +552,11 @@ export function DashboardShell() {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                                 <div style={{ borderRadius: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '10px 12px' }}>
                                     <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Mục tiêu</div>
-                                    <div style={{ fontSize: 14, fontWeight: 900, marginTop: 4 }}>{formatCurrencyVND(savingsMetrics?.savingsGoal ?? 0)}</div>
+                                    <div style={{ fontSize: 'clamp(11px, 2.8vw, 14px)', fontWeight: 900, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrencyVND(savingsMetrics?.savingsGoal ?? 0)}</div>
                                 </div>
                                 <div style={{ borderRadius: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '10px 12px' }}>
                                     <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Được chi/ngày</div>
-                                    <div style={{ fontSize: 14, fontWeight: 900, marginTop: 4, color: (savingsMetrics?.avgDailyAllowance ?? 0) >= 0 ? '#15803d' : '#dc2626' }}>
+                                    <div style={{ fontSize: 'clamp(11px, 2.8vw, 14px)', fontWeight: 900, marginTop: 4, color: (savingsMetrics?.avgDailyAllowance ?? 0) >= 0 ? '#15803d' : '#dc2626', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         {formatCurrencyVND(savingsMetrics?.avgDailyAllowance ?? 0)}
                                     </div>
                                 </div>
@@ -555,7 +564,7 @@ export function DashboardShell() {
                                     <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Đang chi/ngày</div>
                                     <div
                                         style={{
-                                            fontSize: 14,
+                                            fontSize: 'clamp(11px, 2.8vw, 14px)',
                                             fontWeight: 900,
                                             marginTop: 4,
                                             color:
@@ -563,6 +572,9 @@ export function DashboardShell() {
                                                 (savingsMetrics?.savingsGoal ?? 0) <= 0
                                                     ? '#15803d'
                                                     : '#dc2626',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
                                         }}
                                     >
                                         {formatCurrencyVND(savingsMetrics?.avgDailyExpense ?? 0)}
@@ -574,7 +586,9 @@ export function DashboardShell() {
 
                     {isLoggingOut ? (
                         <AppCard style={{ padding: 14, marginBottom: 16, color: '#dbeafe', fontSize: 13.5 }}>
-                            Đang đăng xuất và blacklist token...
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <LoaderCircle size={16} className="spin" /> Đang đăng xuất...
+                            </div>
                         </AppCard>
                     ) : null}
 

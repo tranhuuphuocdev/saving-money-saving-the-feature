@@ -42,6 +42,7 @@ type IUserHit = {
 const mapUserSource = (source: IUserSource): IUser => {
     return {
         id: String(source.uId),
+        displayName: String(source.dn || source.username || source.uId),
         username: source.username,
         password: source.password,
         role: source.role,
@@ -123,7 +124,10 @@ const createUserDocument = async (payload: IUserSource): Promise<void> => {
 
 const updateUserTelegramChatId = async (
     userId: string,
-    telegramChatId?: string,
+    payload: {
+        telegramChatId?: string;
+        displayName?: string;
+    },
 ): Promise<IUser | undefined> => {
     const hit = await searchUserDocument({
         bool: {
@@ -138,7 +142,8 @@ const updateUserTelegramChatId = async (
 
     const updatedSource: IUserSource = {
         ...hit._source,
-        teleChatId: telegramChatId || "",
+        teleChatId: payload.telegramChatId || "",
+        dn: payload.displayName || hit._source.dn || hit._source.username,
         updatedAt: Date.now(),
     };
 
@@ -213,6 +218,7 @@ const login = async (req: Request, res: Response): Promise<Response | void> => {
                 refreshToken,
                 user: {
                     id: user.id,
+                    displayName: user.displayName,
                     username: user.username,
                     role: user.role,
                     telegramChatId: user.telegramChatId,
@@ -293,6 +299,7 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
                 refreshToken,
                 user: {
                     id: user.id,
+                    displayName: user.displayName,
                     username: user.username,
                     role: user.role,
                     telegramChatId: user.telegramChatId,
@@ -410,6 +417,7 @@ const getProfile = async (req: Request, res: Response): Promise<Response> => {
         success: true,
         data: {
             id: req.user.id,
+            displayName: user?.displayName,
             username: req.user.username,
             role: req.user.role,
             telegramChatId: user?.telegramChatId,
@@ -429,6 +437,11 @@ const updateProfile = async (req: Request, res: Response): Promise<Response> => 
             ? undefined
             : String(req.body.telegramChatId).trim();
 
+    const displayName =
+        req.body?.displayName === undefined || req.body?.displayName === null
+            ? undefined
+            : String(req.body.displayName).trim();
+
     if (telegramChatId && telegramChatId.length > 64) {
         return res.status(400).json({
             success: false,
@@ -436,8 +449,25 @@ const updateProfile = async (req: Request, res: Response): Promise<Response> => 
         });
     }
 
+    if (displayName !== undefined && !displayName) {
+        return res.status(400).json({
+            success: false,
+            message: "displayName must not be empty.",
+        });
+    }
+
+    if (displayName && displayName.length > 80) {
+        return res.status(400).json({
+            success: false,
+            message: "displayName must be less than or equal to 80 characters.",
+        });
+    }
+
     try {
-        const updatedUser = await updateUserTelegramChatId(userId, telegramChatId);
+        const updatedUser = await updateUserTelegramChatId(userId, {
+            telegramChatId,
+            displayName,
+        });
 
         if (!updatedUser) {
             return res.status(404).json({
@@ -451,6 +481,7 @@ const updateProfile = async (req: Request, res: Response): Promise<Response> => 
             message: "Profile updated successfully.",
             data: {
                 id: updatedUser.id,
+                displayName: updatedUser.displayName,
                 username: updatedUser.username,
                 role: updatedUser.role,
                 telegramChatId: updatedUser.telegramChatId,

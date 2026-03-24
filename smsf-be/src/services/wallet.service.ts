@@ -1,8 +1,10 @@
 import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
 import {
+    findWalletByUserAndName,
     getWalletById,
     getWalletsByUserId,
     getWalletSummaryByUserId,
+    upsertWallet,
     upsertWalletsBulk,
     updateWalletBalance,
 } from "../repositories/wallet.repository";
@@ -101,9 +103,68 @@ const applyTransactionEffectToWallet = (
     );
 };
 
+const createWalletForUser = async (
+    userId: string,
+    payload: {
+        name: string;
+        type?: string;
+        balance?: number;
+    },
+): Promise<IWallet> => {
+    const name = String(payload.name || "").trim();
+    const type = String(payload.type || "custom").trim().toLowerCase();
+    const balance = Number(payload.balance || 0);
+
+    if (!name) {
+        const error = new Error("Wallet name is required.");
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+    }
+
+    if (name.length > 40) {
+        const error = new Error("Wallet name must be less than or equal to 40 characters.");
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+    }
+
+    if (!Number.isFinite(balance) || balance < 0) {
+        const error = new Error("Wallet balance must be a non-negative number.");
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+    }
+
+    const duplicatedWallet = await findWalletByUserAndName(userId, name);
+    if (duplicatedWallet) {
+        const error = new Error("Wallet name already exists.");
+        (error as Error & { statusCode?: number }).statusCode = 409;
+        throw error;
+    }
+
+    const now = Date.now();
+    const safeType = type || "custom";
+    const normalizedIdFragment = `${name}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 32) || "wallet";
+
+    const newWallet: IWallet = {
+        id: `wallet-${safeType}-${normalizedIdFragment}-${now}`,
+        userId,
+        name,
+        type: safeType,
+        balance,
+        createdAt: now,
+        updatedAt: now,
+    };
+
+    return upsertWallet(newWallet);
+};
+
 export {
     listWalletsByUserId,
     getWalletSummary,
     findWalletById,
     applyTransactionEffectToWallet,
+    createWalletForUser,
 };

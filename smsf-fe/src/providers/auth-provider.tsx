@@ -1,8 +1,8 @@
 'use client';
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken, registerRequest, updateTelegramChatIdRequest } from '@/lib/auth/api';
-import { getWalletsRequest } from '@/lib/calendar/api';
+import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest } from '@/lib/auth/api';
+import { createWalletRequest, getWalletsRequest } from '@/lib/calendar/api';
 import { clearSession, getAccessToken, getRefreshToken, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
@@ -98,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
-    const updateTelegramChatId = useCallback(async (telegramChatId?: string) => {
-        const profile = await updateTelegramChatIdRequest(telegramChatId);
+    const updateTelegramChatId = useCallback(async (telegramChatId?: string, displayName?: string) => {
+        const profile = await updateProfileRequest({ telegramChatId, displayName });
         const accessToken = getAccessToken();
         const refreshToken = getRefreshToken();
 
@@ -109,6 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setUser(profile);
     }, []);
+
+    const createWallet = useCallback(async (payload: { name: string; type?: string; balance?: number }) => {
+        await createWalletRequest(payload);
+        await refreshWalletsSafely();
+    }, [refreshWalletsSafely]);
 
     const logout = useCallback(async () => {
         await logoutRequest();
@@ -126,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             wallets,
             login,
             register,
+            createWallet,
             updateTelegramChatId,
             logout,
             refreshProfile,
@@ -135,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isLoading,
             login,
             register,
+            createWallet,
             updateTelegramChatId,
             logout,
             refreshProfile,

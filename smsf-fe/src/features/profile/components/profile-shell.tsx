@@ -10,12 +10,19 @@ import { useAuth } from '@/providers/auth-provider';
 
 export function ProfileShell() {
     const router = useRouter();
-    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile } = useAuth();
+    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet } = useAuth();
 
+    const [displayName, setDisplayName] = useState('');
     const [telegramChatId, setTelegramChatId] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
+    const [walletName, setWalletName] = useState('');
+    const [walletType, setWalletType] = useState('custom');
+    const [walletBalance, setWalletBalance] = useState('');
+    const [walletErrorMessage, setWalletErrorMessage] = useState('');
+    const [walletSuccessMessage, setWalletSuccessMessage] = useState('');
+    const [isCreatingWallet, setIsCreatingWallet] = useState(false);
 
     useEffect(() => {
         if (!isLoading && !isAuthenticated) {
@@ -24,27 +31,79 @@ export function ProfileShell() {
     }, [isAuthenticated, isLoading, router]);
 
     useEffect(() => {
+        setDisplayName(user?.displayName || '');
+    }, [user?.displayName]);
+
+    useEffect(() => {
         setTelegramChatId(user?.telegramChatId || '');
     }, [user?.telegramChatId]);
 
     const hasTelegramId = useMemo(() => Boolean((user?.telegramChatId || '').trim()), [user?.telegramChatId]);
 
-    const handleSaveTelegramId = async () => {
+    const handleSaveProfile = async () => {
+        const nextDisplayName = displayName.trim();
+
+        if (nextDisplayName.length > 60) {
+            setErrorMessage('Display name tối đa 60 ký tự.');
+            setSuccessMessage('');
+            return;
+        }
+
         setIsSubmitting(true);
         setErrorMessage('');
         setSuccessMessage('');
 
         try {
-            await updateTelegramChatId(telegramChatId.trim() || undefined);
+            await updateTelegramChatId(telegramChatId.trim() || undefined, nextDisplayName || undefined);
             await refreshProfile();
-            setSuccessMessage('Đã cập nhật Telegram ID thành công.');
+            setSuccessMessage('Đã cập nhật hồ sơ thành công.');
         } catch (error) {
             const responseMessage =
                 (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-                'Cập nhật Telegram ID thất bại.';
+                'Cập nhật hồ sơ thất bại.';
             setErrorMessage(responseMessage);
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const handleCreateWallet = async () => {
+        const trimmedName = walletName.trim();
+        const initialBalance = Number(walletBalance.replace(/\D/g, '') || 0);
+
+        setWalletErrorMessage('');
+        setWalletSuccessMessage('');
+
+        if (!trimmedName) {
+            setWalletErrorMessage('Vui lòng nhập tên ví.');
+            return;
+        }
+
+        if (trimmedName.length > 40) {
+            setWalletErrorMessage('Tên ví tối đa 40 ký tự.');
+            return;
+        }
+
+        setIsCreatingWallet(true);
+
+        try {
+            await createWallet({
+                name: trimmedName,
+                type: walletType,
+                balance: initialBalance,
+            });
+
+            setWalletName('');
+            setWalletType('custom');
+            setWalletBalance('');
+            setWalletSuccessMessage('Đã thêm ví mới thành công.');
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Tạo ví thất bại.';
+            setWalletErrorMessage(responseMessage);
+        } finally {
+            setIsCreatingWallet(false);
         }
     };
 
@@ -86,11 +145,38 @@ export function ProfileShell() {
 
                     <div style={{ borderRadius: 14, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <UserRound size={16} color="var(--accent)" />
-                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Username</span>
-                            <span style={{ fontWeight: 800 }}>{user?.username || 'N/A'}</span>
+                            <div style={{ width: 18, height: 18, borderRadius: 999, overflow: 'hidden', border: '1px solid var(--chip-border)', flexShrink: 0 }}>
+                                <img src="/icon.svg" alt="User avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </div>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Display name</span>
+                            <span style={{ fontWeight: 800 }}>{user?.displayName || user?.username || 'N/A'}</span>
                         </div>
+                        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Username: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.username || 'N/A'}</span></div>
                         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Role: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.role || 'user'}</span></div>
+                    </div>
+
+                    <div style={{ borderRadius: 14, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <UserRound size={16} color="var(--accent)" />
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Display name</span>
+                        </div>
+
+                        <input
+                            type="text"
+                            value={displayName}
+                            onChange={(event) => setDisplayName(event.target.value)}
+                            placeholder="Nhập display name"
+                            style={{
+                                width: '100%',
+                                borderRadius: 10,
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-strong)',
+                                color: 'var(--foreground)',
+                                minHeight: 42,
+                                padding: '0 12px',
+                                fontSize: 14,
+                            }}
+                        />
                     </div>
 
                     <div style={{ borderRadius: 14, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 10 }}>
@@ -124,9 +210,9 @@ export function ProfileShell() {
                             <div style={{ color: '#16a34a', fontSize: 12 }}>{successMessage}</div>
                         ) : null}
 
-                        <PrimaryButton onClick={handleSaveTelegramId} disabled={isSubmitting} style={{ justifyContent: 'center' }}>
+                        <PrimaryButton onClick={handleSaveProfile} disabled={isSubmitting} style={{ justifyContent: 'center' }}>
                             {isSubmitting ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />}
-                            {isSubmitting ? 'Đang lưu...' : 'Lưu Telegram ID'}
+                            {isSubmitting ? 'Đang lưu...' : 'Lưu hồ sơ'}
                         </PrimaryButton>
                     </div>
                 </AppCard>
@@ -137,7 +223,78 @@ export function ProfileShell() {
                             <WalletCards size={17} color="var(--accent)" />
                             <span style={{ fontWeight: 800 }}>Ví của bạn</span>
                         </div>
-                        <span style={{ fontWeight: 800, color: 'var(--accent-text)' }}>{formatCurrencyVND(totalWalletBalance)}</span>
+                        <span style={{ fontWeight: 800, color: 'var(--accent-text)', whiteSpace: 'nowrap' }}>{formatCurrencyVND(totalWalletBalance)}</span>
+                    </div>
+
+                    <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '10px 12px', display: 'grid', gap: 8 }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Thêm ví mới</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
+                            <input
+                                type="text"
+                                value={walletName}
+                                onChange={(event) => setWalletName(event.target.value)}
+                                placeholder="Tên ví"
+                                style={{
+                                    width: '100%',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-strong)',
+                                    color: 'var(--foreground)',
+                                    minHeight: 40,
+                                    padding: '0 10px',
+                                    fontSize: 13.5,
+                                }}
+                            />
+                            <select
+                                value={walletType}
+                                onChange={(event) => setWalletType(event.target.value)}
+                                style={{
+                                    width: '100%',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-strong)',
+                                    color: 'var(--foreground)',
+                                    minHeight: 40,
+                                    padding: '0 10px',
+                                    fontSize: 13.5,
+                                }}
+                            >
+                                <option value="custom">Tuỳ chọn</option>
+                                <option value="cash">Tiền mặt</option>
+                                <option value="bank">Ngân hàng</option>
+                                <option value="momo">Momo</option>
+                            </select>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={walletBalance ? new Intl.NumberFormat('vi-VN').format(Number(walletBalance.replace(/\D/g, '') || 0)) : ''}
+                                onChange={(event) => setWalletBalance(event.target.value.replace(/\D/g, ''))}
+                                placeholder="Số dư ban đầu"
+                                style={{
+                                    width: '100%',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-strong)',
+                                    color: 'var(--foreground)',
+                                    minHeight: 40,
+                                    padding: '0 10px',
+                                    fontSize: 13.5,
+                                }}
+                            />
+                            <PrimaryButton onClick={handleCreateWallet} disabled={isCreatingWallet} style={{ justifyContent: 'center' }}>
+                                {isCreatingWallet ? 'Đang thêm...' : 'Thêm ví'}
+                            </PrimaryButton>
+                        </div>
+
+                        {walletErrorMessage ? (
+                            <div style={{ color: '#ef4444', fontSize: 12 }}>{walletErrorMessage}</div>
+                        ) : null}
+                        {walletSuccessMessage ? (
+                            <div style={{ color: '#16a34a', fontSize: 12 }}>{walletSuccessMessage}</div>
+                        ) : null}
                     </div>
 
                     {wallets.length === 0 ? (

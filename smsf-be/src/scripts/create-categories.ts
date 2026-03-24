@@ -104,7 +104,11 @@ async function createCategories(): Promise<void> {
     console.log("Seed categories completed.");
 }
 
-createCategories().catch((error) => {
-    console.error("Create categories script error:", error.message);
-    process.exit(1);
-});
+export { createCategories };
+
+if (require.main === module) {
+    createCategories().catch((error) => {
+        console.error("Create categories script error:", error.message);
+        process.exit(1);
+    });
+}

@@ -9,6 +9,7 @@ export interface INotification {
     description?: string;
     telegramChatId?: string;
     dueDay: number;
+    activeMonths: number;
     nextDueAt: number;
     paymentStatus: TypeNotificationPaymentStatus;
     paidMonth: number;
@@ -27,6 +28,7 @@ export interface ICreateNotificationPayload {
     categoryId: string;
     amount: number;
     dueDay: number;
+    activeMonths?: number;
     description?: string;
     telegramChatId?: string;
 }

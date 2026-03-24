@@ -1,8 +1,9 @@
 import express from "express";
-import { getWallets } from "../../controllers/wallet.controller";
+import { createWallet, getWallets } from "../../controllers/wallet.controller";
 
 const router = express.Router();
 
 router.get("/", getWallets);
+router.post("/", createWallet);
 
 export default router;

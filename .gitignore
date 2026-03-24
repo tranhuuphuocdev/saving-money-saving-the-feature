@@ -55,3 +55,6 @@ pnpm-debug.log*
 *.temp
 *.swp
 *.swo
+
+monitor-configs
+docker-compose.monitor.yaml

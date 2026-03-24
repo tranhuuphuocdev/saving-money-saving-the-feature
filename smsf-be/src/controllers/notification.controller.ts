@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { getWalletSummary } from "../services/wallet.service";
 import {
     createNotificationForUser,
+    deleteNotificationForUser,
     listCurrentNotificationsByUser,
     payNotificationForUser,
 } from "../services/notification.service";
@@ -111,4 +112,32 @@ const payNotification = async (req: Request, res: Response): Promise<Response> =
     }
 };
 
-export { listNotifications, createNotification, payNotification };
+const deleteNotification = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+    const notificationId = String(req.params.notificationId || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    if (!notificationId) {
+        return res.status(400).json({ success: false, message: "notificationId is required." });
+    }
+
+    try {
+        const notification = await deleteNotificationForUser(userId, notificationId);
+        return res.json({
+            success: true,
+            message: "Notification deleted successfully.",
+            data: notification,
+        });
+    } catch (error) {
+        const statusCode = (error as Error & { statusCode?: number }).statusCode || 500;
+        return res.status(statusCode).json({
+            success: false,
+            message: (error as Error).message,
+        });
+    }
+};
+
+export { listNotifications, createNotification, payNotification, deleteNotification };

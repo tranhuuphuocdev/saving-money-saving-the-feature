@@ -107,6 +107,11 @@ export async function updateTelegramChatIdRequest(telegramChatId?: string) {
     return response.data.data;
 }
 
+export async function updateProfileRequest(payload: { telegramChatId?: string; displayName?: string }) {
+    const response = await api.patch<IProfileResponse>('/auth/profile', payload);
+    return response.data.data;
+}
+
 export async function logoutRequest(): Promise<void> {
     const refreshToken = getRefreshToken();
 

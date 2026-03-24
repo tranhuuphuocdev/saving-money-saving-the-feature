@@ -32,6 +32,30 @@ const getPeriodInfo = (timestamp = Date.now()) => {
     };
 };
 
+const getAbsoluteMonth = (year: number, month: number): number => {
+    return year * 12 + month;
+};
+
+const isNotificationExpired = (notification: INotification, referenceTimestamp = Date.now()): boolean => {
+    const activeMonths = Number(notification.activeMonths || 12);
+
+    if (activeMonths <= 0) {
+        return true;
+    }
+
+    const createdDate = new Date(notification.createdAt || referenceTimestamp);
+    const createdMonthAbsolute = getAbsoluteMonth(
+        createdDate.getFullYear(),
+        createdDate.getMonth() + 1,
+    );
+
+    const { month, year } = getPeriodInfo(referenceTimestamp);
+    const currentMonthAbsolute = getAbsoluteMonth(year, month);
+    const lastVisibleMonthAbsolute = createdMonthAbsolute + activeMonths - 1;
+
+    return currentMonthAbsolute > lastVisibleMonthAbsolute;
+};
+
 const getClampedDueDay = (year: number, month: number, dueDay: number): number => {
     const lastDay = new Date(year, month, 0).getDate();
     return Math.max(1, Math.min(lastDay, dueDay));
@@ -172,6 +196,18 @@ const syncAndPersistNotification = async (
     notification: INotification,
     referenceTimestamp = Date.now(),
 ): Promise<INotification> => {
+    if (notification.isDeleted) {
+        return notification;
+    }
+
+    if (isNotificationExpired(notification, referenceTimestamp)) {
+        return saveNotification({
+            ...notification,
+            isDeleted: true,
+            updatedAt: Date.now(),
+        });
+    }
+
     const normalized = normalizeNotificationForCurrentPeriod(notification, referenceTimestamp);
 
     if (!normalized.changed) {
@@ -189,7 +225,7 @@ const listCurrentNotificationsByUser = async (
         notifications.map((notification) => syncAndPersistNotification(notification)),
     );
 
-    return sortNotifications(synced);
+    return sortNotifications(synced.filter((item) => !item.isDeleted));
 };
 
 const createNotificationForUser = async (
@@ -215,6 +251,7 @@ const createNotificationForUser = async (
         description: payload.description?.trim() || category.name,
         telegramChatId: payload.telegramChatId?.trim() || undefined,
         dueDay: payload.dueDay,
+        activeMonths: payload.activeMonths || 12,
         nextDueAt: buildDueTimestamp(year, month, payload.dueDay),
         paymentStatus: PAYMENT_STATUS.UNPAID,
         paidMonth: 0,
@@ -227,6 +264,25 @@ const createNotificationForUser = async (
     };
 
     return saveNotification(notification);
+};
+
+const deleteNotificationForUser = async (
+    userId: string,
+    notificationId: string,
+): Promise<INotification> => {
+    const existing = await getNotificationById(userId, notificationId);
+
+    if (!existing) {
+        const error = new Error("Notification not found.");
+        (error as Error & { statusCode?: number }).statusCode = 404;
+        throw error;
+    }
+
+    return saveNotification({
+        ...existing,
+        isDeleted: true,
+        updatedAt: Date.now(),
+    });
 };
 
 const payNotificationForUser = async (
@@ -353,6 +409,7 @@ export {
     PAYMENT_STATUS,
     buildDueTimestamp,
     createNotificationForUser,
+    deleteNotificationForUser,
     listCurrentNotificationsByUser,
     payNotificationForUser,
     syncNotificationStatusesAndSendReminders,

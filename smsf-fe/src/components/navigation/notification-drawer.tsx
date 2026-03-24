@@ -20,6 +20,7 @@ interface INotificationDrawerProps {
     onClose: () => void;
     onCreateNotification: (payload: ICreateNotificationPayload) => Promise<void>;
     onPayNotification: (notificationId: string, payload: IPayNotificationPayload) => Promise<void>;
+    onDeleteNotification: (notificationId: string) => Promise<void>;
 }
 
 interface INotificationVisualStyle {
@@ -122,6 +123,7 @@ export function NotificationDrawer({
     onClose,
     onCreateNotification,
     onPayNotification,
+    onDeleteNotification,
 }: INotificationDrawerProps) {
     useLockBodyScroll(isOpen);
 
@@ -129,6 +131,7 @@ export function NotificationDrawer({
     const [createCategoryId, setCreateCategoryId] = useState('');
     const [createAmount, setCreateAmount] = useState('');
     const [createDueDay, setCreateDueDay] = useState('1');
+    const [createActiveMonths, setCreateActiveMonths] = useState('12');
     const [createDescription, setCreateDescription] = useState('');
     const [createTelegramChatId, setCreateTelegramChatId] = useState('');
     const [createError, setCreateError] = useState('');
@@ -138,6 +141,7 @@ export function NotificationDrawer({
     const [payWalletId, setPayWalletId] = useState('');
     const [payError, setPayError] = useState('');
     const [isPaying, setIsPaying] = useState(false);
+    const [deletingNotificationId, setDeletingNotificationId] = useState<string | null>(null);
 
     const richestWalletId = useMemo(() => {
         if (wallets.length === 0) {
@@ -186,6 +190,7 @@ export function NotificationDrawer({
         setCreateCategoryId(expenseCategories[0]?.id || '');
         setCreateAmount('');
         setCreateDueDay('1');
+        setCreateActiveMonths('12');
         setCreateDescription('');
         setCreateTelegramChatId('');
         setCreateError('');
@@ -201,6 +206,7 @@ export function NotificationDrawer({
     const submitCreateNotification = async () => {
         const amountValue = parseInt(createAmount.replace(/\D/g, ''), 10) || 0;
         const dueDayValue = parseInt(createDueDay, 10);
+        const activeMonthsValue = parseInt(createActiveMonths, 10);
 
         if (!createCategoryId) {
             setCreateError('Vui lòng chọn danh mục chi tiêu.');
@@ -217,6 +223,11 @@ export function NotificationDrawer({
             return;
         }
 
+        if (!Number.isInteger(activeMonthsValue) || activeMonthsValue < 1 || activeMonthsValue > 240) {
+            setCreateError('Số tháng nhắc phải từ 1 đến 240.');
+            return;
+        }
+
         setCreateError('');
         setIsCreating(true);
 
@@ -225,6 +236,7 @@ export function NotificationDrawer({
                 categoryId: createCategoryId,
                 amount: amountValue,
                 dueDay: dueDayValue,
+                activeMonths: activeMonthsValue,
                 description: createDescription.trim() || undefined,
                 telegramChatId: userTelegramChatId?.trim() || createTelegramChatId.trim() || undefined,
             });
@@ -236,6 +248,27 @@ export function NotificationDrawer({
             );
         } finally {
             setIsCreating(false);
+        }
+    };
+
+    const submitDeleteNotification = async (notificationId: string) => {
+        if (deletingNotificationId) {
+            return;
+        }
+
+        setDeletingNotificationId(notificationId);
+        try {
+            await onDeleteNotification(notificationId);
+            if (selectedNotification?.id === notificationId) {
+                closePayModal();
+            }
+        } catch (error) {
+            setPayError(
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                    'Xoá nhắc lịch thất bại.',
+            );
+        } finally {
+            setDeletingNotificationId(null);
         }
     };
 
@@ -299,6 +332,7 @@ export function NotificationDrawer({
                     display: 'grid',
                     gridTemplateRows: 'auto 1fr auto',
                     gap: 12,
+                    overflow: 'hidden',
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -325,64 +359,79 @@ export function NotificationDrawer({
                     strong
                     style={{
                         padding: 12,
-                        overflowY: 'auto',
                         display: 'grid',
-                        gap: 10,
-                        gridAutoRows: 'max-content',
-                        alignContent: 'start',
+                        minHeight: 0,
+                        overflow: 'hidden',
                     }}
                 >
-                    {isLoading ? (
-                        <div style={{ display: 'grid', gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
-                                <Clock3 size={14} /> Đang tải danh sách nhắc hạn...
+                    <div style={{ display: 'grid', gap: 10, minHeight: 0, overflowY: 'auto', alignContent: 'start', gridAutoRows: 'max-content', paddingRight: 2 }}>
+                        {isLoading ? (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
+                                    <Clock3 size={14} /> Đang tải danh sách nhắc hạn...
+                                </div>
+                                {Array.from({ length: 3 }).map((_, index) => (
+                                    <div
+                                        key={`noti-skeleton-${index}`}
+                                        style={{
+                                            height: 68,
+                                            borderRadius: 12,
+                                            border: '1px solid var(--surface-border)',
+                                            background: 'linear-gradient(90deg, color-mix(in srgb, var(--surface-soft) 84%, transparent) 0%, color-mix(in srgb, var(--surface-soft) 56%, var(--foreground)) 50%, color-mix(in srgb, var(--surface-soft) 84%, transparent) 100%)',
+                                            backgroundSize: '220% 100%',
+                                            animation: 'list-shimmer 0.95s ease infinite',
+                                        }}
+                                    />
+                                ))}
                             </div>
-                            {Array.from({ length: 3 }).map((_, index) => (
-                                <div
-                                    key={`noti-skeleton-${index}`}
-                                    style={{
-                                        height: 68,
-                                        borderRadius: 12,
-                                        border: '1px solid var(--surface-border)',
-                                        background: 'linear-gradient(90deg, color-mix(in srgb, var(--surface-soft) 84%, transparent) 0%, color-mix(in srgb, var(--surface-soft) 56%, var(--foreground)) 50%, color-mix(in srgb, var(--surface-soft) 84%, transparent) 100%)',
-                                        backgroundSize: '220% 100%',
-                                        animation: 'list-shimmer 0.95s ease infinite',
-                                    }}
-                                />
-                            ))}
-                        </div>
-                    ) : null}
+                        ) : null}
 
-                    {!isLoading && sortedNotifications.length === 0 ? (
-                        <div
-                            style={{
-                                borderRadius: 12,
-                                border: '1px dashed var(--surface-border)',
-                                padding: '16px 12px',
-                                color: 'var(--muted)',
-                                fontSize: 12.5,
-                                textAlign: 'center',
-                            }}
-                        >
-                            Chưa có nhắc lịch thanh toán trong tháng.
-                        </div>
-                    ) : null}
+                        {!isLoading && sortedNotifications.length === 0 ? (
+                            <div
+                                style={{
+                                    borderRadius: 12,
+                                    border: '1px dashed var(--surface-border)',
+                                    padding: '16px 12px',
+                                    color: 'var(--muted)',
+                                    fontSize: 12.5,
+                                    textAlign: 'center',
+                                }}
+                            >
+                                Chưa có nhắc lịch thanh toán trong tháng.
+                            </div>
+                        ) : null}
 
-                    {!isLoading
-                        ? sortedNotifications.map((item) => {
+                        {!isLoading
+                            ? sortedNotifications.map((item) => {
                               const isPaid = item.paymentStatus === 'paid';
                               const remainingDays = getRemainingDays(item.nextDueAt);
                             const visualStyle = getNotificationVisualStyle(item, remainingDays);
 
                               return (
-                                  <button
+                                  <div
                                       key={item.id}
-                                      type="button"
-                                      disabled={isPaid}
+                                      role={isPaid ? undefined : 'button'}
+                                      tabIndex={isPaid ? -1 : 0}
                                       onClick={() => {
+                                          if (isPaid) {
+                                              return;
+                                          }
+
                                           setSelectedNotification(item);
                                           setPayWalletId(richestWalletId);
                                           setPayError('');
+                                      }}
+                                      onKeyDown={(event) => {
+                                          if (isPaid) {
+                                              return;
+                                          }
+
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                              event.preventDefault();
+                                              setSelectedNotification(item);
+                                              setPayWalletId(richestWalletId);
+                                              setPayError('');
+                                          }
                                       }}
                                       style={{
                                           display: 'grid',
@@ -396,6 +445,7 @@ export function NotificationDrawer({
                                           color: visualStyle.titleColor,
                                           textAlign: 'left',
                                           opacity: isPaid ? 0.94 : 1,
+                                          cursor: isPaid ? 'default' : 'pointer',
                                       }}
                                   >
                                       <div style={{ minWidth: 0 }}>
@@ -450,24 +500,50 @@ export function NotificationDrawer({
                                           <div
                                               style={{
                                                   fontWeight: 900,
-                                                  fontSize: 12.5,
+                                                  fontSize: 'clamp(10.5px, 2.6vw, 12.5px)',
                                                   color: visualStyle.amountColor,
                                                   whiteSpace: 'nowrap',
+                                                  maxWidth: 120,
+                                                  overflow: 'hidden',
+                                                  textOverflow: 'ellipsis',
                                               }}
                                           >
                                               {formatCurrencyVND(item.amount)}
                                           </div>
+                                          <button
+                                              type="button"
+                                              onClick={(event) => {
+                                                  event.stopPropagation();
+                                                  void submitDeleteNotification(item.id);
+                                              }}
+                                              disabled={Boolean(deletingNotificationId)}
+                                              style={{
+                                                  marginTop: 6,
+                                                  borderRadius: 8,
+                                                  border: '1px solid color-mix(in srgb, #ef4444 40%, var(--surface-border))',
+                                                  background: 'transparent',
+                                                  color: '#ef4444',
+                                                  fontSize: 10.5,
+                                                  fontWeight: 700,
+                                                  minHeight: 24,
+                                                  padding: '0 8px',
+                                              }}
+                                          >
+                                              {deletingNotificationId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                          </button>
                                       </div>
-                                  </button>
+                                  </div>
                               );
                           })
-                        : null}
+                            : null}
+                        </div>
                 </AppCard>
 
                 <PrimaryButton
                     onClick={() => {
                         setCreateCategoryId(expenseCategories[0]?.id || '');
                         setCreateDueDay('1');
+                        setCreateActiveMonths('12');
                         setCreateAmount('');
                         setCreateDescription('');
                         setCreateTelegramChatId('');
@@ -562,6 +638,18 @@ export function NotificationDrawer({
                                 options={Array.from({ length: 31 }).map((_, index) => ({
                                     value: String(index + 1),
                                     label: `Ngày ${String(index + 1).padStart(2, '0')}`,
+                                }))}
+                            />
+                        </div>
+
+                        <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Nhắc trong bao nhiêu tháng</div>
+                            <CustomSelect
+                                value={createActiveMonths}
+                                onChange={setCreateActiveMonths}
+                                options={[1, 3, 6, 12, 24, 36, 60].map((month) => ({
+                                    value: String(month),
+                                    label: `${month} tháng`,
                                 }))}
                             />
                         </div>

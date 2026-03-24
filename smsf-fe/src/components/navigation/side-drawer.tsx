@@ -55,6 +55,7 @@ export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets 
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 16,
+                    overflow: 'hidden',
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -77,22 +78,22 @@ export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets 
                     </button>
                 </div>
 
-                <AppCard style={{ padding: 18, display: 'grid', gap: 14, overflowY: 'auto' }} strong>
+                <AppCard style={{ padding: 18, display: 'grid', gap: 14, flex: 1, minHeight: 0, overflow: 'hidden' }} strong>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                         <div
                             style={{
                                 width: 56,
                                 height: 56,
                                 borderRadius: 18,
-                                display: 'grid',
-                                placeItems: 'center',
+                                overflow: 'hidden',
                                 background: 'linear-gradient(135deg, var(--chip-bg), rgba(255,255,255,0.08))',
+                                border: '1px solid var(--chip-border)',
                             }}
                         >
-                            <UserRound size={26} color="var(--accent-text)" />
+                            <img src="/icon.svg" alt="User avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 18, fontWeight: 800 }}>{user?.username ?? 'Guest'}</div>
+                            <div style={{ fontSize: 18, fontWeight: 800 }}>{user?.displayName || user?.username || 'Guest'}</div>
                             <div style={{ color: 'var(--muted)', textTransform: 'capitalize', fontSize: 13 }}>{user?.role ?? 'user'}</div>
                         </div>
                     </div>
@@ -111,7 +112,7 @@ export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets 
                             <WalletCards size={18} />
                             <span style={{ fontSize: 12, fontWeight: 700 }}>Tổng số dư ví</span>
                         </div>
-                        <div style={{ fontSize: 28, lineHeight: 1.1, fontWeight: 900 }}>{formatCurrencyVND(totalWalletBalance)}</div>
+                        <div style={{ fontSize: 'clamp(18px, 6vw, 28px)', lineHeight: 1.1, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrencyVND(totalWalletBalance)}</div>
                         <div style={{ fontSize: 12, color: 'rgba(239,246,255,0.85)' }}>Tiết kiệm là thượng sách để có tất cả</div>
                     </div>
 
@@ -157,33 +158,35 @@ export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets 
                         </div>
                     </div>
 
-                    <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'grid', gap: 10, minHeight: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 13.5 }}>Các ví hiện có</div>
-                        {wallets.length === 0 ? (
-                            <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có ví nào để hiển thị.</div>
-                        ) : (
-                            wallets.map((wallet) => (
-                                <div
-                                    key={wallet.id}
-                                    style={{
-                                        borderRadius: 14,
-                                        padding: '12px 14px',
-                                        background: 'var(--surface-soft)',
-                                        border: '1px solid var(--border)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: 10,
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
-                                        <div style={{ color: 'var(--muted)', fontSize: 11.5, textTransform: 'uppercase' }}>{wallet.type}</div>
+                        <div style={{ display: 'grid', gap: 8, maxHeight: '30vh', overflowY: 'auto', paddingRight: 2 }}>
+                            {wallets.length === 0 ? (
+                                <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có ví nào để hiển thị.</div>
+                            ) : (
+                                wallets.map((wallet) => (
+                                    <div
+                                        key={wallet.id}
+                                        style={{
+                                            borderRadius: 14,
+                                            padding: '12px 14px',
+                                            background: 'var(--surface-soft)',
+                                            border: '1px solid var(--border)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 10,
+                                        }}
+                                    >
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{wallet.name}</div>
+                                            <div style={{ color: 'var(--muted)', fontSize: 11.5, textTransform: 'uppercase' }}>{wallet.type}</div>
+                                        </div>
+                                        <div style={{ fontWeight: 800, fontSize: 'clamp(11px, 2.8vw, 13.5px)', whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrencyVND(wallet.balance)}</div>
                                     </div>
-                                    <div style={{ fontWeight: 800, fontSize: 13.5 }}>{formatCurrencyVND(wallet.balance)}</div>
-                                </div>
-                            ))
-                        )}
+                                ))
+                            )}
+                        </div>
                     </div>
 
                     <button

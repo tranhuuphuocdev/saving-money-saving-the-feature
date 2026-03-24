@@ -19,6 +19,7 @@ const notificationMappings = {
             },
             teleChatId: { type: 'keyword' },
             dueDay: { type: 'byte' },
+            activeMonths: { type: 'short' },
             nextDueAt: { type: 'date' },
             paymentStatus: { type: 'keyword' },
             paidMonth: { type: 'byte' },

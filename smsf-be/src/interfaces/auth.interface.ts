@@ -3,6 +3,7 @@ import { TypeJwtTokenKind, TypeUserRole } from "../types/auth.type";
 
 export interface IUser {
     id: string;
+    displayName: string;
     username: string;
     password: string;
     role: TypeUserRole;

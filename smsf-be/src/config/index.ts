@@ -5,6 +5,7 @@ dotenv.config();
 const config = {
     port: Number(process.env.PORT) || 3000,
     nodeEnv: process.env.NODE_ENV || "development",
+    logLevel: process.env.LOG_LEVEL || "info",
     api: {
         defaultVersion: process.env.API_DEFAULT_VERSION || "v1",
         versions: {
@@ -35,6 +36,11 @@ const config = {
             "http://localhost:4318/v1/traces",
         debug: process.env.TRACING_DEBUG === "true",
     },
+    loki: {
+        LOKI_HOST: process.env.LOKI_HOST || "http://localhost:3100",
+        LOKI_ENABLE: process.env.LOKI_ENABLE === "true",
+        LOG_DIR: process.env.LOG_DIR || "/var/log/services/smsf-be",
+    }
 };
 
 export default config;

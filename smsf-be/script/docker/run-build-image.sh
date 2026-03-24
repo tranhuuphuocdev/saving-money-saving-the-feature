@@ -6,7 +6,7 @@ DOCKER_FILE=Dockerfile
 
 IMAGE_NAME=hthouse
 
-IMAGE_TAG=smsf-be-1.0
+IMAGE_TAG=smsf-be-1.1
 
 DOCKER_HUB=tranhuuphuoc22
 

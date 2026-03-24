@@ -20,6 +20,7 @@ interface INotificationApiItem {
     description?: string;
     telegramChatId?: string;
     dueDay: number;
+    activeMonths: number;
     nextDueAt: number;
     paymentStatus: 'unpaid' | 'paid';
     paidMonth: number;
@@ -62,4 +63,12 @@ export async function payNotificationRequest(
         ...response.data.data,
         notification: toNotificationItem(response.data.data.notification),
     };
+}
+
+export async function deleteNotificationRequest(notificationId: string): Promise<INotificationItem> {
+    const response = await api.delete<IApiResponse<INotificationApiItem>>(
+        `/notifications/${notificationId}`,
+    );
+
+    return toNotificationItem(response.data.data);
 }

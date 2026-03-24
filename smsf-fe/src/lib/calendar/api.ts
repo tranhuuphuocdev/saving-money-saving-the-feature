@@ -3,6 +3,7 @@ import {
     ICalendarTransaction,
     ICategoryItem,
     ICreateTransactionPayload,
+    ICreateWalletPayload,
     ITransactionQueryParams,
     ITransactionQueryResult,
     IUpdateTransactionPayload,
@@ -51,6 +52,13 @@ const toCalendarTransaction = (
 
 export async function getWalletsRequest(): Promise<IWalletSummary> {
     const response = await api.get<IApiResponse<IWalletSummary>>('/wallets');
+    return response.data.data;
+}
+
+export async function createWalletRequest(
+    payload: ICreateWalletPayload,
+): Promise<IWalletItem> {
+    const response = await api.post<IApiResponse<IWalletItem>>('/wallets', payload);
     return response.data.data;
 }
 

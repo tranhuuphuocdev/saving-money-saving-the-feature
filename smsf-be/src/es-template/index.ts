@@ -23,4 +23,6 @@ export default async function runInitAllEsTemplates(isUpdateCurrentIndex = true)
     await runInitWalletES(isUpdateCurrentIndex);
 }
 
-runInitAllEsTemplates();
+if (require.main === module) {
+    runInitAllEsTemplates();
+}

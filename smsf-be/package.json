@@ -1,6 +1,6 @@
 {
   "name": "smsf-be",
-  "version": "1.0.0-202603171628-202603171629-202603171633-202603171821-202603180030-202603182320",
+  "version": "1.0.0-202603171628-202603171629-202603171633-202603171821-202603180030-202603182320-202603240047",
   "description": "Save Money Save The Feature - Backend API",
   "main": "dist/server.js",
   "scripts": {
@@ -30,7 +30,9 @@
     "jsonwebtoken": "^9.0.3",
     "lodash": "^4.17.23",
     "moment-timezone": "^0.6.0",
-    "morgan": "^1.10.1"
+    "morgan": "^1.10.1",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

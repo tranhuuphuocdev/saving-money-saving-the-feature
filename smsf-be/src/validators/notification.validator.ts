@@ -54,6 +54,10 @@ const validateCreateNotificationPayload = (
     const categoryId = String(body.categoryId || "").trim();
     const amount = toPositiveNumber(body.amount);
     const dueDay = toInteger(body.dueDay);
+    const activeMonths =
+        body.activeMonths === undefined || body.activeMonths === null
+            ? undefined
+            : toInteger(body.activeMonths);
     const description =
         body.description === undefined || body.description === null
             ? undefined
@@ -76,6 +80,13 @@ const validateCreateNotificationPayload = (
         errors.push("dueDay must be an integer between 1 and 31.");
     }
 
+    if (
+        activeMonths !== undefined &&
+        (!Number.isInteger(activeMonths) || activeMonths < 1 || activeMonths > 240)
+    ) {
+        errors.push("activeMonths must be an integer between 1 and 240.");
+    }
+
     if (description && description.length > 255) {
         errors.push("description must be less than or equal to 255 characters.");
     }
@@ -95,6 +106,7 @@ const validateCreateNotificationPayload = (
             categoryId,
             amount,
             dueDay,
+            activeMonths,
             description: description || undefined,
             telegramChatId: telegramChatId || undefined,
         },

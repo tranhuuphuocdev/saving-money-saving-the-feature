@@ -41,6 +41,12 @@ export interface IWalletSummary {
     totalAmount: number;
 }
 
+export interface ICreateWalletPayload {
+    name: string;
+    type?: string;
+    balance?: number;
+}
+
 export interface ICreateTransactionPayload {
     walletId: string;
     amount: number;
