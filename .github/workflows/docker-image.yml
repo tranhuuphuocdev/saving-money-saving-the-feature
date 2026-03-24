@@ -20,6 +20,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run my build script
+        working-directory: ./smsf-be
         run: |
-          chmod +x ./smsf-be/script/docker/run-build-image.sh
-          ./smsf-be/script/docker/run-build-image.sh
+          chmod +x ./script/docker/run-build-image.sh
+          ./script/docker/run-build-image.sh
