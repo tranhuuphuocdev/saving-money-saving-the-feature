@@ -19,8 +19,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Run my build script
+      - name: Run build & push smsf-be image
         working-directory: ./smsf-be
         run: |
           chmod +x ./script/docker/run-build-image.sh
           ./script/docker/run-build-image.sh
+
+      - name: Run build & push smsf-fe image
+        working-directory: ./smsf-fe
+        run: |
+          chmod +x ./script/docker/run-build-image.sh
+          ./script/docker/run-build-image.sh
+          
+      - name: SSH to VPS and Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            deploy-smsf-be && deploy-smsf-fe
