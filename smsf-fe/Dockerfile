@@ -12,6 +12,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+ENV NEXT_PUBLIC_API_BASE_URL=/api/v1
+ENV NEXT_PUBLIC_LOG_LEVEL=debug
+
 RUN npm run build
 
 FROM node:24-alpine AS runner

@@ -3,7 +3,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest } from '@/lib/auth/api';
 import { createWalletRequest, getWalletsRequest } from '@/lib/calendar/api';
-import { clearSession, getAccessToken, getRefreshToken, getStoredUser, setSession } from '@/lib/auth/storage';
+import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
 
@@ -32,29 +32,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const refreshProfile = useCallback(async () => {
         const profile = await getProfileRequest();
-        const accessToken = getAccessToken();
-        const refreshToken = getRefreshToken();
-
-        if (accessToken && refreshToken) {
-            setSession(accessToken, refreshToken, profile);
-        }
-
+        setSession(profile);
         setUser(profile);
     }, []);
 
     const bootstrap = useCallback(async () => {
         try {
-            const accessToken = getAccessToken();
-            const refreshToken = getRefreshToken();
             const storedUser = getStoredUser();
-
-            if (!accessToken || !refreshToken) {
-                clearSession();
-                setUser(null);
-                setWallets([]);
-                setTotalWalletBalance(0);
-                return;
-            }
 
             if (storedUser) {
                 setUser(storedUser);
@@ -63,9 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             try {
                 await refreshProfile();
             } catch {
-                const nextToken = await refreshAccessToken();
+                const refreshed = await refreshAccessToken();
 
-                if (!nextToken) {
+                if (!refreshed) {
                     clearSession();
                     setUser(null);
                     setWallets([]);
@@ -88,25 +72,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = useCallback(async (username: string, password: string) => {
         const data = await loginRequest(username, password);
+        setSession(data.user);
         setUser(data.user);
         void refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
     const register = useCallback(async (username: string, password: string, telegramChatId?: string) => {
         const data = await registerRequest(username, password, telegramChatId);
+        setSession(data.user);
         setUser(data.user);
         void refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
     const updateTelegramChatId = useCallback(async (telegramChatId?: string, displayName?: string) => {
         const profile = await updateProfileRequest({ telegramChatId, displayName });
-        const accessToken = getAccessToken();
-        const refreshToken = getRefreshToken();
-
-        if (accessToken && refreshToken) {
-            setSession(accessToken, refreshToken, profile);
-        }
-
+        setSession(profile);
         setUser(profile);
     }, []);
 

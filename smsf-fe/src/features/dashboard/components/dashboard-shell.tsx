@@ -540,8 +540,8 @@ export function DashboardShell() {
                                     <div style={{ fontSize: 14.5, fontWeight: 800 }}>Tổng quan tháng {monthLabel}</div>
                                     <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.6 }}>
                                         {savingsMetrics?.savingsGoal
-                                            ? 'Mục tiêu đã có rồi, hãy tiêu khéo và để tiền làm phần việc còn lại ✨'
-                                            : 'Đặt mục tiêu để tui nhắc khéo bạn chi tiêu hàng ngày nè 🚀'}
+                                            ? 'Mục tiêu đã có rồi, hãy tiêu khéo và để tiền làm phần việc còn lại'
+                                            : 'Đặt mục tiêu để tui nhắc khéo bạn chi tiêu hàng ngày nè'}
                                     </div>
                                 </div>
                                 <div style={{ width: 46, height: 46, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'var(--theme-icon-surface)', border: '1px solid var(--theme-icon-border)' }}>

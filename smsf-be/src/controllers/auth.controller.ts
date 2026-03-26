@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { CookieOptions, Request, Response } from "express";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import jwt, { SignOptions } from "jsonwebtoken";
@@ -6,9 +6,7 @@ import config from "../config";
 import {
     IJwtAuthPayload,
     ILoginPayload,
-    ILogoutPayloadRequest,
     IRegisterPayload,
-    IRefreshTokenPayloadRequest,
     IUser,
 } from "../interfaces/auth.interface";
 import {
@@ -181,6 +179,90 @@ const generateRefreshToken = (user: IUser): string => {
     });
 };
 
+const parseDurationToMs = (duration: string | number): number => {
+    if (typeof duration === "number") {
+        return duration * 1000;
+    }
+
+    const normalized = String(duration || "").trim();
+    if (!normalized) {
+        return 0;
+    }
+
+    const asNumber = Number(normalized);
+    if (Number.isFinite(asNumber)) {
+        return asNumber * 1000;
+    }
+
+    const matched = normalized.match(/^(\d+)\s*(ms|s|m|h|d|w)$/i);
+    if (!matched) {
+        return 0;
+    }
+
+    const value = Number(matched[1]);
+    const unit = matched[2].toLowerCase();
+
+    const unitMap: Record<string, number> = {
+        ms: 1,
+        s: 1000,
+        m: 60 * 1000,
+        h: 60 * 60 * 1000,
+        d: 24 * 60 * 60 * 1000,
+        w: 7 * 24 * 60 * 60 * 1000,
+    };
+
+    return value * (unitMap[unit] || 0);
+};
+
+const buildCookieOptions = (maxAge: number, path = "/"): CookieOptions => {
+    const options: CookieOptions = {
+        httpOnly: true,
+        secure: config.authCookies.secure,
+        sameSite: config.authCookies.sameSite,
+        maxAge,
+        path,
+    };
+
+    if (config.authCookies.domain) {
+        options.domain = config.authCookies.domain;
+    }
+
+    return options;
+};
+
+const setAuthCookies = (
+    res: Response,
+    payload: { accessToken: string; refreshToken: string },
+): void => {
+    const accessTokenMaxAge = parseDurationToMs(config.jwt.expiresIn);
+    const refreshTokenMaxAge = parseDurationToMs(config.jwt.refreshExpiresIn);
+    const refreshPath = `/api/${config.api.defaultVersion}/auth`;
+
+    res.cookie(
+        config.authCookies.accessTokenName,
+        payload.accessToken,
+        buildCookieOptions(accessTokenMaxAge, "/"),
+    );
+    res.cookie(
+        config.authCookies.refreshTokenName,
+        payload.refreshToken,
+        buildCookieOptions(refreshTokenMaxAge, refreshPath),
+    );
+};
+
+const clearAuthCookies = (res: Response): void => {
+    const refreshPath = `/api/${config.api.defaultVersion}/auth`;
+
+    res.clearCookie(
+        config.authCookies.accessTokenName,
+        buildCookieOptions(0, "/"),
+    );
+    res.clearCookie(
+        config.authCookies.refreshTokenName,
+        buildCookieOptions(0, refreshPath),
+    );
+};
+
 /**
  * Login - validate credentials & return JWT
  */
@@ -209,13 +291,12 @@ const login = async (req: Request, res: Response): Promise<Response | void> => {
         const refreshToken = generateRefreshToken(user);
 
         storeRefreshToken(refreshToken, user.id);
+        setAuthCookies(res, { accessToken, refreshToken });
 
         return res.json({
             success: true,
             message: "Login successful.",
             data: {
-                accessToken,
-                refreshToken,
                 user: {
                     id: user.id,
                     displayName: user.displayName,
@@ -290,13 +371,12 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
         const accessToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
         storeRefreshToken(refreshToken, user.id);
+        setAuthCookies(res, { accessToken, refreshToken });
 
         return res.status(201).json({
             success: true,
             message: "Register successful.",
             data: {
-                accessToken,
-                refreshToken,
                 user: {
                     id: user.id,
                     displayName: user.displayName,
@@ -319,8 +399,9 @@ const refreshToken = async (
     res: Response,
 ): Promise<Response | void> => {
     try {
-        const { refreshToken: rawRefreshToken } =
-            req.body as IRefreshTokenPayloadRequest;
+        const rawRefreshToken = req.cookies?.[
+            config.authCookies.refreshTokenName
+        ] as string | undefined;
 
         if (!rawRefreshToken) {
             return res.status(400).json({
@@ -367,14 +448,14 @@ const refreshToken = async (
         const newAccessToken = generateAccessToken(user);
         const newRefreshToken = generateRefreshToken(user);
         storeRefreshToken(newRefreshToken, user.id);
+        setAuthCookies(res, {
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+        });
 
         return res.json({
             success: true,
             message: "Token refreshed successfully.",
-            data: {
-                accessToken: newAccessToken,
-                refreshToken: newRefreshToken,
-            },
         });
     } catch (error) {
         return res.status(401).json({
@@ -386,7 +467,9 @@ const refreshToken = async (
 
 const logout = (req: Request, res: Response): Response => {
     const accessToken = req.accessToken;
-    const { refreshToken: rawRefreshToken } = req.body as ILogoutPayloadRequest;
+    const rawRefreshToken = req.cookies?.[
+        config.authCookies.refreshTokenName
+    ] as string | undefined;
 
     if (accessToken) {
         blacklistToken(accessToken);
@@ -400,6 +483,8 @@ const logout = (req: Request, res: Response): Response => {
     if (req.user?.id) {
         revokeAllUserRefreshTokens(String(req.user.id));
     }
+
+    clearAuthCookies(res);
 
     return res.json({
         success: true,

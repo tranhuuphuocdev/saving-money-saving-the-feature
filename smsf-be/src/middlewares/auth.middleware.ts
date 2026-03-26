@@ -14,15 +14,22 @@ const authMiddleware = (
 ): Response | void => {
     try {
         const authHeader = req.headers.authorization;
+        const cookieToken = req.cookies?.[config.authCookies.accessTokenName] as
+            | string
+            | undefined;
 
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        let token = cookieToken;
+
+        if (!token && authHeader && authHeader.startsWith("Bearer ")) {
+            token = authHeader.split(" ")[1];
+        }
+
+        if (!token) {
             return res.status(401).json({
                 success: false,
                 message: "Access denied. No token provided.",
             });
         }
-
-        const token = authHeader.split(" ")[1];
 
         if (isTokenBlacklisted(token)) {
             return res.status(401).json({

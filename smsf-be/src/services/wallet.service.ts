@@ -85,7 +85,7 @@ const applyTransactionEffectToWallet = (
     const nextBalance = wallet.balance + delta;
 
     if (nextBalance < 0) {
-        const error = new Error("Wallet balance is not enough for this expense.");
+        const error = new Error("Không có tiền mà mua tùm lum dị cha nội, nạp tiền dô!!");
         (error as Error & { statusCode?: number }).statusCode = 400;
         throw error;
     }

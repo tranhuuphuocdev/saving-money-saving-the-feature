@@ -1,35 +1,25 @@
 import axios, { AxiosError } from 'axios';
-import { clearSession, getAccessToken, getRefreshToken, setSession, updateTokens } from '@/lib/auth/storage';
+import { clearSession, setSession } from '@/lib/auth/storage';
 import { ILoginResponse, IProfileResponse } from '@/types/auth';
 
 const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://160.250.181.32:3000/api/v1',
+    baseURL: process.env.NEXT_PUBLIC_API_BASE_URL,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
     },
 });
 
-let refreshPromise: Promise<string | null> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
-    const refreshToken = getRefreshToken();
-
-    if (!refreshToken) {
-        clearSession();
-        return null;
-    }
-
+async function refreshAccessToken(): Promise<boolean> {
     if (!refreshPromise) {
         refreshPromise = api
-            .post('/auth/refresh', { refreshToken })
-            .then((response) => {
-                const { accessToken, refreshToken: nextRefreshToken } = response.data.data;
-                updateTokens(accessToken, nextRefreshToken);
-                return accessToken as string;
-            })
+            .post('/auth/refresh')
+            .then(() => true)
             .catch(() => {
                 clearSession();
-                return null;
+                return false;
             })
             .finally(() => {
                 refreshPromise = null;
@@ -38,28 +28,20 @@ async function refreshAccessToken(): Promise<string | null> {
 
     return refreshPromise;
 }
-
-api.interceptors.request.use((config) => {
-    const token = getAccessToken();
-
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    return config;
-});
-
 api.interceptors.response.use(
     (response) => response,
     async (error: AxiosError) => {
         const originalRequest = error.config as typeof error.config & { _retry?: boolean };
+        const requestPath = originalRequest?.url || '';
+        const shouldSkipRefresh = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout'].some((path) =>
+            requestPath.includes(path),
+        );
 
-        if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+        if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !shouldSkipRefresh) {
             originalRequest._retry = true;
-            const nextToken = await refreshAccessToken();
+            const refreshed = await refreshAccessToken();
 
-            if (nextToken && originalRequest.headers) {
-                originalRequest.headers.Authorization = `Bearer ${nextToken}`;
+            if (refreshed) {
                 return api(originalRequest);
             }
         }
@@ -74,7 +56,7 @@ export async function loginRequest(username: string, password: string): Promise<
         password,
     });
     const payload = response.data.data;
-    setSession(payload.accessToken, payload.refreshToken, payload.user);
+    setSession(payload.user);
     return payload;
 }
 
@@ -90,7 +72,7 @@ export async function registerRequest(
     });
 
     const payload = response.data.data;
-    setSession(payload.accessToken, payload.refreshToken, payload.user);
+    setSession(payload.user);
     return payload;
 }
 
@@ -113,10 +95,8 @@ export async function updateProfileRequest(payload: { telegramChatId?: string; d
 }
 
 export async function logoutRequest(): Promise<void> {
-    const refreshToken = getRefreshToken();
-
     try {
-        await api.post('/auth/logout', { refreshToken });
+        await api.post('/auth/logout');
     } finally {
         clearSession();
     }

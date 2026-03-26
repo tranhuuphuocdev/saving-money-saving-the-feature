@@ -1,13 +1,42 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import morgan from "morgan";
+import config from "./config";
 import routes from "./routes";
 import { errorHandler } from "./middlewares";
 
 const app = express();
 
+app.disable("x-powered-by");
+
+if (config.nodeEnv === "production") {
+    app.set("trust proxy", 1);
+}
+
+const allowAllOrigins = config.cors.allowedOrigins.length === 0;
+
 // --- Global Middlewares ---
-app.use(cors());
+app.use(
+    cors({
+        origin(origin, callback) {
+            if (!origin || allowAllOrigins || config.cors.allowedOrigins.includes(origin)) {
+                callback(null, true);
+                return;
+            }
+
+            callback(new Error("Origin is not allowed by CORS policy."));
+        },
+        credentials: true,
+    }),
+);
+app.use(
+    helmet({
+        crossOriginResourcePolicy: false,
+    }),
+);
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
