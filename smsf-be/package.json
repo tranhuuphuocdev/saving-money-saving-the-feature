@@ -1,6 +1,6 @@
 {
   "name": "smsf-be",
-  "version": "1.0.0",
+  "version": "1.0.0-202603272340",
   "description": "Save Money Save The Feature - Backend API",
   "main": "dist/server.js",
   "scripts": {
@@ -22,6 +22,7 @@
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/sdk-node": "^0.213.0",
+    "@prisma/client": "^6.16.2",
     "axios": "^1.13.6",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -34,6 +35,7 @@
     "lodash": "^4.17.23",
     "moment-timezone": "^0.6.0",
     "morgan": "^1.10.1",
+    "pg": "^8.16.0",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
@@ -44,8 +46,10 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^24.5.2",
+    "@types/pg": "^8.15.2",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.1",
+    "prisma": "^6.16.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
   }
