@@ -1,23 +1,28 @@
 import { randomUUID } from "node:crypto";
 import { ICategory, TypeCategoryKind } from "../interfaces/category.interface";
-import { esClient, withPrefix } from "../lib/es-client";
+import { prisma } from "../lib/prisma";
 
-const categoryAlias = withPrefix("category");
-
-const categoryIndexByTimestamp = (timestamp: number): string => {
-    return categoryAlias;
-}
-
-const mapCategorySource = (source: Record<string, unknown>): ICategory => {
+const mapRow = (row: {
+    id: string;
+    userId: string;
+    name: string;
+    icon: string | null;
+    type: string;
+    isDefault: boolean;
+    isDeleted: boolean;
+    createdAt: bigint;
+    updatedAt: bigint;
+}): ICategory => {
     return {
-        id: String(source.cateId),
-        userId: String(source.uId),
-        name: String(source.cateName),
-        type: String(source.cateType) as TypeCategoryKind,
-        isDefault: Boolean(source.isDefault),
-        isDeleted: Boolean(source.isDeleted),
-        createdAt: Number(source.createdAt || 0),
-        updatedAt: Number(source.updatedAt || 0),
+        id: String(row.id),
+        userId: String(row.userId),
+        name: String(row.name),
+        icon: row.icon ? String(row.icon) : undefined,
+        type: String(row.type) as TypeCategoryKind,
+        isDefault: Boolean(row.isDefault),
+        isDeleted: Boolean(row.isDeleted),
+        createdAt: Number(row.createdAt || 0n),
+        updatedAt: Number(row.updatedAt || 0n),
     };
 };
 
@@ -25,46 +30,23 @@ const listCategoriesByUser = async (
     userId: string,
     type?: TypeCategoryKind,
 ): Promise<ICategory[]> => {
-    const filters: Array<Record<string, unknown>> = [];
+    const result = await prisma.category.findMany({
+        where: {
+            isDeleted: false,
+            OR: [
+                { isDefault: true },
+                { userId: String(userId) },
+            ],
+            ...(type ? { type } : {}),
+        },
+        orderBy: [
+            { isDefault: "desc" },
+            { updatedAt: "desc" },
+        ],
+        take: 200,
+    });
 
-    if (type) {
-        filters.push({ term: { cateType: type } });
-    }
-
-    return esClient
-        .post(`/${categoryAlias}/_search`, {
-            size: 200,
-            query: {
-                bool: {
-                    filter: filters,
-                    should: [
-                        { term: { isDefault: true } },
-                        { term: { uId: String(userId) } },
-                    ],
-                    minimum_should_match: 1,
-                    must_not: [{ term: { isDeleted: true } }],
-                },
-            },
-            sort: [{ isDefault: { order: "desc" } }, { updatedAt: { order: "desc" } }],
-        })
-        .then((response) => {
-            const hits =
-                (response.data?.hits?.hits as Array<{
-                    _source: Record<string, unknown>;
-                }>) || [];
-
-            return hits.map((hit) => mapCategorySource(hit._source));
-        })
-        .catch((error) => {
-            if (
-                (error as { response?: { status?: number } }).response?.status ===
-                404
-            ) {
-                return [];
-            }
-
-            throw error;
-        });
+    return result.map(mapRow);
 };
 
 const findCategoryByUserAndName = async (
@@ -72,89 +54,59 @@ const findCategoryByUserAndName = async (
     name: string,
     type: TypeCategoryKind,
 ): Promise<ICategory | undefined> => {
-    try {
-        const response = await esClient.post(`/${categoryAlias}/_search`, {
-            size: 1,
-            query: {
-                bool: {
-                    filter: [{ term: { cateType: type } }],
-                    should: [
-                        { term: { isDefault: true } },
-                        { term: { uId: String(userId) } },
-                    ],
-                    minimum_should_match: 1,
-                    must: [
-                        {
-                            term: {
-                                "cateName.keyword": name,
-                            },
-                        },
-                    ],
-                    must_not: [{ term: { isDeleted: true } }],
-                },
-            },
-            sort: [{ isDefault: { order: "desc" } }, { updatedAt: { order: "desc" } }],
-        });
+    const result = await prisma.category.findFirst({
+        where: {
+            type,
+            name,
+            isDeleted: false,
+            OR: [
+                { isDefault: true },
+                { userId: String(userId) },
+            ],
+        },
+        orderBy: [
+            { isDefault: "desc" },
+            { updatedAt: "desc" },
+        ],
+    });
 
-        const hit = response.data?.hits?.hits?.[0] as
-            | { _source: Record<string, unknown> }
-            | undefined;
-
-        return hit?._source ? mapCategorySource(hit._source) : undefined;
-    } catch (error) {
-        if ((error as { response?: { status?: number } }).response?.status === 404) {
-            return undefined;
-        }
-
-        throw error;
-    }
+    return result ? mapRow(result) : undefined;
 };
 
 const findCategoryByIdForUser = async (
     userId: string,
     categoryId: string,
 ): Promise<ICategory | undefined> => {
-    try {
-        const response = await esClient.post(`/${categoryAlias}/_search`, {
-            size: 1,
-            query: {
-                bool: {
-                    filter: [{ term: { cateId: String(categoryId) } }],
-                    should: [
-                        { term: { isDefault: true } },
-                        { term: { uId: String(userId) } },
-                    ],
-                    minimum_should_match: 1,
-                    must_not: [{ term: { isDeleted: true } }],
-                },
-            },
-            sort: [{ isDefault: { order: "desc" } }, { updatedAt: { order: "desc" } }],
-        });
+    const result = await prisma.category.findFirst({
+        where: {
+            id: categoryId,
+            isDeleted: false,
+            OR: [
+                { isDefault: true },
+                { userId: String(userId) },
+            ],
+        },
+        orderBy: [
+            { isDefault: "desc" },
+            { updatedAt: "desc" },
+        ],
+    });
 
-        const hit = response.data?.hits?.hits?.[0] as
-            | { _source: Record<string, unknown> }
-            | undefined;
-
-        return hit?._source ? mapCategorySource(hit._source) : undefined;
-    } catch (error) {
-        if ((error as { response?: { status?: number } }).response?.status === 404) {
-            return undefined;
-        }
-
-        throw error;
-    }
+    return result ? mapRow(result) : undefined;
 };
 
 const createCategoryForUser = async (
     userId: string,
     name: string,
     type: TypeCategoryKind,
+    icon?: string,
 ): Promise<ICategory> => {
     const now = Date.now();
     const category: ICategory = {
         id: randomUUID(),
         userId,
         name,
+        icon,
         type,
         isDefault: false,
         isDeleted: false,
@@ -162,17 +114,18 @@ const createCategoryForUser = async (
         updatedAt: now,
     };
 
-    const indexName = categoryIndexByTimestamp(now);
-
-    await esClient.put(`/${indexName}/_doc/${category.id}?refresh=true`, {
-        cateId: category.id,
-        uId: String(category.userId),
-        cateName: category.name,
-        cateType: category.type,
-        createdAt: category.createdAt,
-        updatedAt: category.updatedAt,
-        isDefault: category.isDefault,
-        isDeleted: category.isDeleted,
+    await prisma.category.create({
+        data: {
+            id: category.id,
+            userId: String(category.userId),
+            name: category.name,
+            icon: category.icon || null,
+            type: category.type,
+            isDefault: category.isDefault,
+            isDeleted: category.isDeleted,
+            createdAt: BigInt(category.createdAt),
+            updatedAt: BigInt(category.updatedAt),
+        },
     });
 
     return category;

@@ -1,37 +1,52 @@
 import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
-import { esClient, withPrefix } from "../lib/es-client";
+import { DbExecutor, prisma } from "../lib/prisma";
 
-const walletIndex = withPrefix("wallet");
+const getExecutor = (executor?: DbExecutor) => executor || prisma;
 
-const mapWalletSource = (source: Record<string, unknown>): IWallet => {
+const mapRow = (row: {
+    id: string;
+    userId: string;
+    name: string;
+    type: string;
+    amount: unknown;
+    createdAt: bigint;
+    updatedAt: bigint;
+}): IWallet => {
     return {
-        id: String(source.wId),
-        userId: String(source.uId),
-        name: String(source.wName),
-        type: String(source.wType || "cash"),
-        balance: Number(source.amount || 0),
-        createdAt: Number(source.createdAt),
-        updatedAt: Number(source.updatedAt),
+        id: String(row.id),
+        userId: String(row.userId),
+        name: String(row.name),
+        type: String(row.type || "cash"),
+        balance: Number(row.amount || 0),
+        createdAt: Number(row.createdAt || 0n),
+        updatedAt: Number(row.updatedAt || 0n),
     };
 };
 
-const isIndexNotFoundError = (error: unknown): boolean => {
-    return (error as { response?: { status?: number } }).response?.status === 404;
-};
+const upsertWallet = async (
+    wallet: IWallet,
+    executor?: DbExecutor,
+): Promise<IWallet> => {
+    const db = getExecutor(executor);
 
-const upsertWallet = async (wallet: IWallet): Promise<IWallet> => {
-    await esClient.put(
-        `/${walletIndex}/_doc/${wallet.id}?refresh=true`,
-        {
-            wId: wallet.id,
-            uId: String(wallet.userId),
-            wName: wallet.name,
-            wType: wallet.type,
+    await db.wallet.upsert({
+        where: { id: wallet.id },
+        create: {
+            id: wallet.id,
+            userId: wallet.userId,
+            name: wallet.name,
+            type: wallet.type,
             amount: wallet.balance,
-            createdAt: wallet.createdAt,
-            updatedAt: wallet.updatedAt,
+            createdAt: BigInt(wallet.createdAt),
+            updatedAt: BigInt(wallet.updatedAt),
         },
-    );
+        update: {
+            name: wallet.name,
+            type: wallet.type,
+            amount: wallet.balance,
+            updatedAt: BigInt(wallet.updatedAt),
+        },
+    });
 
     return wallet;
 };
@@ -41,206 +56,76 @@ const upsertWalletsBulk = async (wallets: IWallet[]): Promise<void> => {
         return;
     }
 
-    const operations = wallets.flatMap((wallet) => {
-        return [
-            {
-                index: {
-                    _index: walletIndex,
-                    _id: wallet.id,
-                },
-            },
-            {
-                wId: wallet.id,
-                uId: String(wallet.userId),
-                wName: wallet.name,
-                wType: wallet.type,
-                amount: wallet.balance,
-                createdAt: wallet.createdAt,
-                updatedAt: wallet.updatedAt,
-            },
-        ];
-    });
-
-    await esClient.post("/_bulk?refresh=true", operations.map((line) => JSON.stringify(line)).join("\n") + "\n", {
-        headers: {
-            "Content-Type": "application/x-ndjson",
-        },
-    });
+    for (const wallet of wallets) {
+        await upsertWallet(wallet);
+    }
 };
 
 const getWalletsByUserId = async (userId: string): Promise<IWallet[]> => {
-    try {
-        const response = await esClient.post(`/${walletIndex}/_search`, {
-            size: 200,
-            query: {
-                term: {
-                    uId: String(userId),
-                },
-            },
-            sort: [{ updatedAt: { order: "desc" } }],
-        });
+    const result = await prisma.wallet.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        take: 200,
+    });
 
-        const hits =
-            (response.data?.hits?.hits as Array<{ _source: Record<string, unknown> }>) ||
-            [];
-
-        const seen = new Set<string>();
-        const wallets: IWallet[] = [];
-
-        for (const hit of hits) {
-            const wallet = mapWalletSource(hit._source);
-            if (!seen.has(wallet.id)) {
-                seen.add(wallet.id);
-                wallets.push(wallet);
-            }
-        }
-
-        return wallets;
-    } catch (error) {
-        if (isIndexNotFoundError(error)) {
-            return [];
-        }
-
-        throw error;
-    }
+    return result.map(mapRow);
 };
 
 const getWalletSummaryByUserId = async (
     userId: string,
 ): Promise<IWalletSummary> => {
-    try {
-        const response = await esClient.post(`/${walletIndex}/_search`, {
-            size: 0,
-            query: {
-                term: {
-                    uId: String(userId),
-                },
-            },
-            aggs: {
-                total_amount: {
-                    sum: {
-                        field: "amount",
-                    },
-                },
-                wallets_by_id: {
-                    terms: {
-                        field: "wId",
-                        size: 200,
-                    },
-                    aggs: {
-                        latest_wallet: {
-                            top_hits: {
-                                size: 1,
-                                sort: [{ updatedAt: { order: "desc" } }],
-                            },
-                        },
-                    },
-                },
-            },
-        });
+    const [walletRows, totals] = await Promise.all([
+        prisma.wallet.findMany({
+            where: { userId },
+            orderBy: { updatedAt: "desc" },
+        }),
+        prisma.wallet.aggregate({
+            where: { userId },
+            _sum: { amount: true },
+        }),
+    ]);
 
-        const buckets =
-            (response.data?.aggregations?.wallets_by_id?.buckets as Array<{
-                latest_wallet?: {
-                    hits?: {
-                        hits?: Array<{ _source: Record<string, unknown> }>;
-                    };
-                };
-            }>) || [];
+    const wallets = walletRows.map(mapRow);
 
-        const wallets = buckets
-            .map((bucket) => bucket.latest_wallet?.hits?.hits?.[0]?._source)
-            .filter(Boolean)
-            .map((source) => mapWalletSource(source as Record<string, unknown>));
-
-        return {
-            wallets,
-            totalAmount: response.data?.aggregations?.total_amount?.value || 0,
-        };
-    } catch (error) {
-        if (isIndexNotFoundError(error)) {
-            return {
-                wallets: [],
-                totalAmount: 0,
-            };
-        }
-
-        throw error;
-    }
+    return {
+        wallets,
+        totalAmount: Number(totals._sum.amount || 0),
+    };
 };
 
 const getWalletById = async (
     userId: string,
     walletId: string,
+    executor?: DbExecutor,
 ): Promise<IWallet | undefined> => {
-    try {
-        const response = await esClient.post(`/${walletIndex}/_search`, {
-            size: 1,
-            query: {
-                bool: {
-                    filter: [
-                        { term: { uId: String(userId) } },
-                        { term: { wId: walletId } },
-                    ],
-                },
-            },
-            sort: [{ updatedAt: { order: "desc" } }],
-        });
+    const db = getExecutor(executor);
+    const result = await db.wallet.findFirst({
+        where: { userId, id: walletId },
+        orderBy: { updatedAt: "desc" },
+    });
 
-        const hit = response.data?.hits?.hits?.[0];
-        if (hit?._source) {
-            return mapWalletSource(hit._source);
-        }
-
-        return undefined;
-    } catch (error) {
-        if (isIndexNotFoundError(error)) {
-            return undefined;
-        }
-
-        throw error;
-    }
+    return result ? mapRow(result) : undefined;
 };
 
 const findWalletByUserAndName = async (
     userId: string,
     walletName: string,
 ): Promise<IWallet | undefined> => {
-    try {
-        const response = await esClient.post(`/${walletIndex}/_search`, {
-            size: 1,
-            query: {
-                bool: {
-                    filter: [
-                        { term: { uId: String(userId) } },
-                        { term: { "wName.keyword": walletName } },
-                    ],
-                },
-            },
-            sort: [{ updatedAt: { order: "desc" } }],
-        });
+    const result = await prisma.wallet.findFirst({
+        where: { userId, name: walletName },
+        orderBy: { updatedAt: "desc" },
+    });
 
-        const hit = response.data?.hits?.hits?.[0];
-        if (hit?._source) {
-            return mapWalletSource(hit._source);
-        }
-
-        return undefined;
-    } catch (error) {
-        if (isIndexNotFoundError(error)) {
-            return undefined;
-        }
-
-        throw error;
-    }
+    return result ? mapRow(result) : undefined;
 };
 
 const updateWalletBalance = async (
     userId: string,
     walletId: string,
     nextBalance: number,
+    executor?: DbExecutor,
 ): Promise<IWallet | undefined> => {
-    const wallet = await getWalletById(userId, walletId);
+    const wallet = await getWalletById(userId, walletId, executor);
     if (!wallet) {
         return undefined;
     }
@@ -251,7 +136,7 @@ const updateWalletBalance = async (
         updatedAt: Date.now(),
     };
 
-    await upsertWallet(updatedWallet);
+    await upsertWallet(updatedWallet, executor);
     return updatedWallet;
 };
 

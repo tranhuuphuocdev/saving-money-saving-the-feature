@@ -16,12 +16,17 @@ import {
     queryTransactionsByUser,
     updateTransaction,
 } from "../repositories/transaction.repository";
+import { DbExecutor, withTransaction } from "../lib/prisma";
 import {
     applyTransactionEffectToWallet,
     findWalletById,
 } from "./wallet.service";
 import { getCategoryById } from "./category.service";
-import { getSavingBudgetByUser, getSavingGoalByUser } from "./budget.service";
+import {
+    getSavingBudgetByUser,
+    getSavingGoalByUser,
+    syncBudgetJarsByTimestamp,
+} from "./budget.service";
 import { computeSavingsRate, ISavingsRateResult } from "../util/savings-calc";
 
 interface ITransactionMetaPayload {
@@ -67,12 +72,14 @@ const listTransactionsByQuery = (
     return queryTransactionsByUser(userId, queryParams);
 };
 
-const createTransactionForUser = (
+const createTransactionForUser = async (
     userId: string,
     payload: ICreateTransactionPayload,
     actorUsername?: string,
+    executor?: DbExecutor,
 ): Promise<{ transaction: ITransaction; updatedWalletBalance: number }> => {
-    return findWalletById(userId, payload.walletId).then(async (wallet) => {
+    const run = async (txExecutor: DbExecutor) => {
+        const wallet = await findWalletById(userId, payload.walletId, txExecutor);
         if (!wallet) {
             const error = new Error("Wallet not found.");
             (error as Error & { statusCode?: number }).statusCode = 404;
@@ -84,6 +91,7 @@ const createTransactionForUser = (
             payload.type,
             payload.amount,
             "apply",
+            txExecutor,
         );
 
         const meta = await resolveTransactionMeta(
@@ -93,13 +101,20 @@ const createTransactionForUser = (
             payload.timestamp,
         );
 
-        const transaction = await createTransaction(userId, payload, meta);
+        const transaction = await createTransaction(userId, payload, meta, txExecutor);
+        await syncBudgetJarsByTimestamp(userId, payload.timestamp, txExecutor);
 
         return {
             transaction,
             updatedWalletBalance: updatedWallet.balance,
         };
-    });
+    };
+
+    if (executor) {
+        return run(executor);
+    }
+
+    return withTransaction(run);
 };
 
 const createTransactionsBulkForUser = async (
@@ -107,52 +122,76 @@ const createTransactionsBulkForUser = async (
     payloads: ICreateTransactionPayload[],
     actorUsername?: string,
 ): Promise<{ transactions: ITransaction[] }> => {
-    for (const payload of payloads) {
-        const wallet = await findWalletById(userId, payload.walletId);
-        if (!wallet) {
-            const error = new Error(`Wallet not found: ${payload.walletId}`);
-            (error as Error & { statusCode?: number }).statusCode = 404;
-            throw error;
+    return withTransaction(async (executor) => {
+        for (const payload of payloads) {
+            const wallet = await findWalletById(userId, payload.walletId, executor);
+            if (!wallet) {
+                const error = new Error(`Wallet not found: ${payload.walletId}`);
+                (error as Error & { statusCode?: number }).statusCode = 404;
+                throw error;
+            }
+
+            await applyTransactionEffectToWallet(
+                wallet,
+                payload.type,
+                payload.amount,
+                "apply",
+                executor,
+            );
         }
 
-        await applyTransactionEffectToWallet(
-            wallet,
-            payload.type,
-            payload.amount,
-            "apply",
-        );
-    }
-
-    const metadataItems = await Promise.all(
-        payloads.map((payload) =>
-            resolveTransactionMeta(
-                userId,
-                actorUsername,
-                payload.category,
-                payload.timestamp,
+        const metadataItems = await Promise.all(
+            payloads.map((payload) =>
+                resolveTransactionMeta(
+                    userId,
+                    actorUsername,
+                    payload.category,
+                    payload.timestamp,
+                ),
             ),
-        ),
-    );
+        );
 
-    const transactions = await createTransactionsBulk(userId, payloads, metadataItems);
+        const transactions = await createTransactionsBulk(
+            userId,
+            payloads,
+            metadataItems,
+            executor,
+        );
 
-    return { transactions };
+        const monthKeys = Array.from(
+            new Set(
+                payloads.map((payload) => {
+                    const date = new Date(payload.timestamp);
+                    return `${date.getFullYear()}-${date.getMonth() + 1}`;
+                }),
+            ),
+        );
+
+        for (const key of monthKeys) {
+            const [yearRaw, monthRaw] = key.split("-");
+            const timestamp = new Date(Number(yearRaw), Number(monthRaw) - 1, 1).getTime();
+            await syncBudgetJarsByTimestamp(userId, timestamp, executor);
+        }
+
+        return { transactions };
+    });
 };
 
-const updateTransactionForUser = (
+const updateTransactionForUser = async (
     userId: string,
     transactionId: string,
     payload: IUpdateTransactionPayload,
     actorUsername?: string,
 ): Promise<{ transaction: ITransaction; affectedWalletIds: string[] }> => {
-    return getTransactionById(userId, transactionId).then(async (existing) => {
+    return withTransaction(async (executor) => {
+        const existing = await getTransactionById(userId, transactionId, executor);
         if (!existing) {
             const error = new Error("Transaction not found.");
             (error as Error & { statusCode?: number }).statusCode = 404;
             throw error;
         }
 
-        const currentWallet = await findWalletById(userId, existing.walletId);
+        const currentWallet = await findWalletById(userId, existing.walletId, executor);
         if (!currentWallet) {
             const error = new Error("Current wallet not found.");
             (error as Error & { statusCode?: number }).statusCode = 404;
@@ -163,7 +202,7 @@ const updateTransactionForUser = (
         const nextType = payload.type ?? existing.type;
         const nextAmount = payload.amount ?? existing.amount;
 
-        const nextWallet = await findWalletById(userId, nextWalletId);
+        const nextWallet = await findWalletById(userId, nextWalletId, executor);
         if (!nextWallet) {
             const error = new Error("Target wallet not found.");
             (error as Error & { statusCode?: number }).statusCode = 404;
@@ -175,6 +214,7 @@ const updateTransactionForUser = (
             existing.type,
             existing.amount,
             "revert",
+            executor,
         );
 
         // If the wallet hasn't changed, use the reverted wallet (with its updated balance)
@@ -182,22 +222,13 @@ const updateTransactionForUser = (
         const walletToApply =
             existing.walletId === nextWalletId ? revertedWallet : nextWallet;
 
-        try {
-            await applyTransactionEffectToWallet(
-                walletToApply,
-                nextType,
-                nextAmount,
-                "apply",
-            );
-        } catch (error) {
-            await applyTransactionEffectToWallet(
-                currentWallet,
-                existing.type,
-                existing.amount,
-                "apply",
-            );
-            throw error;
-        }
+        await applyTransactionEffectToWallet(
+            walletToApply,
+            nextType,
+            nextAmount,
+            "apply",
+            executor,
+        );
 
         const resolvedCategory = payload.category ?? existing.category;
         const resolvedTimestamp = payload.timestamp ?? existing.timestamp;
@@ -208,13 +239,16 @@ const updateTransactionForUser = (
             resolvedTimestamp,
         );
 
-        const updated = await updateTransaction(userId, transactionId, payload, meta);
+        const updated = await updateTransaction(userId, transactionId, payload, meta, executor);
 
         if (!updated) {
             const error = new Error("Transaction update failed.");
             (error as Error & { statusCode?: number }).statusCode = 500;
             throw error;
         }
+
+        await syncBudgetJarsByTimestamp(userId, existing.timestamp, executor);
+        await syncBudgetJarsByTimestamp(userId, resolvedTimestamp, executor);
 
         return {
             transaction: updated,
@@ -226,7 +260,7 @@ const updateTransactionForUser = (
     });
 };
 
-const deleteTransactionForUser = (
+const deleteTransactionForUser = async (
     userId: string,
     transactionId: string,
 ): Promise<{
@@ -234,21 +268,22 @@ const deleteTransactionForUser = (
     updatedWalletBalance: number;
     walletId: string;
 }> => {
-    return getTransactionById(userId, transactionId).then(async (existing) => {
+    return withTransaction(async (executor) => {
+        const existing = await getTransactionById(userId, transactionId, executor);
         if (!existing) {
             const error = new Error("Transaction not found.");
             (error as Error & { statusCode?: number }).statusCode = 404;
             throw error;
         }
 
-        const wallet = await findWalletById(userId, existing.walletId);
+        const wallet = await findWalletById(userId, existing.walletId, executor);
         if (!wallet) {
             const error = new Error("Wallet not found.");
             (error as Error & { statusCode?: number }).statusCode = 404;
             throw error;
         }
 
-        const removed = await deleteTransaction(userId, transactionId);
+        const removed = await deleteTransaction(userId, transactionId, executor);
 
         if (!removed) {
             const error = new Error("Transaction delete failed.");
@@ -261,7 +296,10 @@ const deleteTransactionForUser = (
             existing.type,
             existing.amount,
             "revert",
+            executor,
         );
+
+        await syncBudgetJarsByTimestamp(userId, existing.timestamp, executor);
 
         return {
             deletedTransactionId: transactionId,

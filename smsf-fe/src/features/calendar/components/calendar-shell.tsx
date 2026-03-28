@@ -12,6 +12,7 @@ import { getTransactionsForDate, getMonthDaySummary } from '@/data/calendar';
 import {
     createTransactionRequest,
     deleteTransactionRequest,
+    getBudgetJarsRequest,
     getSavingsRateRequest,
     getTransactionsByMonthRequest,
     upsertSavingGoalRequest,
@@ -24,6 +25,8 @@ import { CalendarSummary } from './calendar-summary';
 import { TransactionModal } from './transaction-modal';
 import { useAuth } from '@/providers/auth-provider';
 import { ISavingsRateData } from '@/types/dashboard';
+import { IBudgetJarItem } from '@/types/dashboard';
+import { CalendarBudgetJars } from './calendar-budget-jars';
 
 interface ICalendarShellProps {
     onInitialLoadComplete?: () => void;
@@ -49,6 +52,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
     const [categories, setCategories] = useState<ICategoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [savingsMetrics, setSavingsMetrics] = useState<ISavingsRateData | null>(null);
+    const [budgetJars, setBudgetJars] = useState<IBudgetJarItem[]>([]);
     const [isSavingGoalSubmitting, setIsSavingGoalSubmitting] = useState(false);
     const monthCacheRef = useRef<Record<string, ICalendarTransaction[]>>({});
     const pendingMonthRequestRef = useRef<Record<string, Promise<ICalendarTransaction[]>>>({});
@@ -126,6 +130,12 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
         return nextMetrics;
     }, [currentMonth, currentYear, fetchSavingsMetrics]);
 
+    const refreshCurrentBudgetJars = useCallback(async () => {
+        const result = await getBudgetJarsRequest({ month: currentMonth, year: currentYear });
+        setBudgetJars(result.jars || []);
+        return result.jars || [];
+    }, [currentMonth, currentYear]);
+
     useEffect(() => {
         let ignore = false;
 
@@ -150,18 +160,20 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
             try {
                 const { month, year } = initialMonthRef.current;
 
-                const [_, currentMonthTransactions, __, fetchedCategories, fetchedSavingsMetrics] = await Promise.all([
+                const [_, currentMonthTransactions, __, fetchedCategories, fetchedSavingsMetrics, fetchedBudgetJars] = await Promise.all([
                     getOrFetchMonthTransactions(getShiftedMonth(month, year, -1).month, getShiftedMonth(month, year, -1).year),
                     getOrFetchMonthTransactions(month, year),
                     getOrFetchMonthTransactions(getShiftedMonth(month, year, 1).month, getShiftedMonth(month, year, 1).year),
                     refreshCategoriesFromDb(),
                     fetchSavingsMetrics(month, year),
+                    getBudgetJarsRequest({ month, year }).then((result) => result.jars || []),
                 ]);
 
                 if (!ignore) {
                     setTransactions(currentMonthTransactions);
                     setCategories(fetchedCategories);
                     setSavingsMetrics(fetchedSavingsMetrics);
+                    setBudgetJars(fetchedBudgetJars);
                     activeMonthKeyRef.current = buildMonthKey(month, year);
                     hasInitialMonthDataRef.current = true;
                     if (!hasNotifiedInitialLoadRef.current) {
@@ -174,6 +186,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
                     setTransactions([]);
                     setCategories([]);
                     setSavingsMetrics(null);
+                    setBudgetJars([]);
                     hasInitialMonthDataRef.current = true;
                     if (!hasNotifiedInitialLoadRef.current) {
                         hasNotifiedInitialLoadRef.current = true;
@@ -334,6 +347,17 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
             }
         }
 
+        try {
+            const nextBudgetJars = await getBudgetJarsRequest({ month, year });
+            if (activeMonthKeyRef.current === targetKey) {
+                setBudgetJars(nextBudgetJars.jars || []);
+            }
+        } catch {
+            if (activeMonthKeyRef.current === targetKey) {
+                setBudgetJars([]);
+            }
+        }
+
         const prefetchTarget = getShiftedMonth(month, year, direction);
         void getOrFetchMonthTransactions(prefetchTarget.month, prefetchTarget.year);
         void preloadAroundMonth(month, year);
@@ -356,6 +380,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
         }
 
         await refreshCurrentSavingsMetrics();
+        await refreshCurrentBudgetJars();
 
         await refreshWallets();
         window.dispatchEvent(new CustomEvent('transaction:changed'));
@@ -378,6 +403,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
         }
 
         await refreshCurrentSavingsMetrics();
+        await refreshCurrentBudgetJars();
 
         await refreshWallets();
         window.dispatchEvent(new CustomEvent('transaction:changed'));
@@ -391,6 +417,7 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
         );
 
         await refreshCurrentSavingsMetrics();
+        await refreshCurrentBudgetJars();
 
         await refreshWallets();
         window.dispatchEvent(new CustomEvent('transaction:changed'));
@@ -444,6 +471,17 @@ export function CalendarShell({ onInitialLoadComplete }: ICalendarShellProps) {
             ) : null}
 
             <CalendarGrid days={calendarDays} onDaySelect={handleDaySelect} />
+            
+            <CalendarBudgetJars
+                month={currentMonth}
+                year={currentYear}
+                totalIncome={monthTotals.totalIncome}
+                categories={categories}
+                jars={budgetJars}
+                onJarsChanged={async () => {
+                    await refreshCurrentBudgetJars();
+                }}
+            />
 
             {selectedDay && (
                 <TransactionModal

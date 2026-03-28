@@ -1,154 +1,157 @@
 import { INotification } from "../interfaces/notification.interface";
-import { esClient, withPrefix } from "../lib/es-client";
+import { DbExecutor, prisma } from "../lib/prisma";
 
-const notificationAlias = withPrefix("notification-alias");
-const notificationIndex = withPrefix("notification");
+const getExecutor = (executor?: DbExecutor) => executor || prisma;
 
-const mapNotificationSource = (source: Record<string, unknown>): INotification => {
+const mapRow = (row: {
+    id: string;
+    userId: string;
+    categoryId: string;
+    categoryName: string | null;
+    amount: unknown;
+    description: string | null;
+    telegramChatId: string | null;
+    dueDay: number;
+    activeMonths: number;
+    nextDueAt: bigint;
+    paymentStatus: string;
+    paidMonth: number;
+    paidYear: number;
+    currentMonth: number;
+    currentYear: number;
+    lastPaymentTxnId: string | null;
+    lastReminderPeriod: number | null;
+    lastReminderAt: bigint | null;
+    createdAt: bigint;
+    updatedAt: bigint;
+    isDeleted: boolean;
+}): INotification => {
     return {
-        id: String(source.notiId),
-        userId: String(source.uId),
-        categoryId: String(source.cateId),
-        categoryName: String(source.cateName || source.cateId || ""),
-        amount: Number(source.amount || 0),
-        description: source.desc ? String(source.desc) : undefined,
-        telegramChatId: source.teleChatId ? String(source.teleChatId) : undefined,
-        dueDay: Number(source.dueDay || 1),
-        activeMonths: Number(source.activeMonths || 12),
-        nextDueAt: Number(source.nextDueAt || 0),
-        paymentStatus: String(source.paymentStatus || "unpaid") as INotification["paymentStatus"],
-        paidMonth: Number(source.paidMonth || 0),
-        paidYear: Number(source.paidYear || 0),
-        currentMonth: Number(source.currentMonth || 0),
-        currentYear: Number(source.currentYear || 0),
-        lastPaymentTxnId: source.lastPaymentTxnId ? String(source.lastPaymentTxnId) : undefined,
+        id: String(row.id),
+        userId: String(row.userId),
+        categoryId: String(row.categoryId),
+        categoryName: String(row.categoryName || row.categoryId || ""),
+        amount: Number(row.amount || 0),
+        description: row.description ? String(row.description) : undefined,
+        telegramChatId: row.telegramChatId ? String(row.telegramChatId) : undefined,
+        dueDay: Number(row.dueDay || 1),
+        activeMonths: Number(row.activeMonths || 12),
+        nextDueAt: Number(row.nextDueAt || 0n),
+        paymentStatus: String(row.paymentStatus || "unpaid") as INotification["paymentStatus"],
+        paidMonth: Number(row.paidMonth || 0),
+        paidYear: Number(row.paidYear || 0),
+        currentMonth: Number(row.currentMonth || 0),
+        currentYear: Number(row.currentYear || 0),
+        lastPaymentTxnId: row.lastPaymentTxnId ? String(row.lastPaymentTxnId) : undefined,
         lastReminderPeriod:
-            source.lastReminderPeriod !== undefined
-                ? Number(source.lastReminderPeriod)
-                : undefined,
+            row.lastReminderPeriod != null ? Number(row.lastReminderPeriod) : undefined,
         lastReminderAt:
-            source.lastReminderAt !== undefined ? Number(source.lastReminderAt) : undefined,
-        createdAt: Number(source.createdAt || 0),
-        updatedAt: Number(source.updatedAt || 0),
-        isDeleted: Boolean(source.isDeleted),
-    };
-};
-
-const toNotificationDocument = (notification: INotification) => {
-    return {
-        notiId: notification.id,
-        uId: String(notification.userId),
-        cateId: notification.categoryId,
-        cateName: notification.categoryName,
-        amount: notification.amount,
-        desc: notification.description || "",
-        teleChatId: notification.telegramChatId || "",
-        dueDay: notification.dueDay,
-        activeMonths: notification.activeMonths,
-        nextDueAt: notification.nextDueAt,
-        paymentStatus: notification.paymentStatus,
-        paidMonth: notification.paidMonth,
-        paidYear: notification.paidYear,
-        currentMonth: notification.currentMonth,
-        currentYear: notification.currentYear,
-        lastPaymentTxnId: notification.lastPaymentTxnId || "",
-        lastReminderPeriod: notification.lastReminderPeriod ?? 0,
-        lastReminderAt: notification.lastReminderAt ?? 0,
-        createdAt: notification.createdAt,
-        updatedAt: notification.updatedAt,
-        isDeleted: notification.isDeleted,
+            row.lastReminderAt != null ? Number(row.lastReminderAt) : undefined,
+        createdAt: Number(row.createdAt || 0n),
+        updatedAt: Number(row.updatedAt || 0n),
+        isDeleted: Boolean(row.isDeleted),
     };
 };
 
 const listNotificationsByUser = async (userId: string): Promise<INotification[]> => {
-    try {
-        const response = await esClient.post(`/${notificationAlias}/_search`, {
-            size: 500,
-            query: {
-                bool: {
-                    filter: [{ term: { uId: String(userId) } }],
-                    must_not: [{ term: { isDeleted: true } }],
-                },
-            },
-            sort: [{ nextDueAt: { order: "asc" } }, { updatedAt: { order: "desc" } }],
-        });
+    const result = await prisma.notification.findMany({
+        where: {
+            userId,
+            isDeleted: false,
+        },
+        orderBy: [
+            { nextDueAt: "asc" },
+            { updatedAt: "desc" },
+        ],
+        take: 500,
+    });
 
-        const hits =
-            (response.data?.hits?.hits as Array<{
-                _source: Record<string, unknown>;
-            }>) || [];
-
-        return hits.map((hit) => mapNotificationSource(hit._source));
-    } catch (error) {
-        if ((error as { response?: { status?: number } }).response?.status === 404) {
-            return [];
-        }
-
-        throw error;
-    }
+    return result.map(mapRow);
 };
 
 const listAllNotifications = async (): Promise<INotification[]> => {
-    try {
-        const response = await esClient.post(`/${notificationAlias}/_search`, {
-            size: 1000,
-            query: {
-                bool: {
-                    must_not: [{ term: { isDeleted: true } }],
-                },
-            },
-            sort: [{ updatedAt: { order: "desc" } }],
-        });
+    const result = await prisma.notification.findMany({
+        where: { isDeleted: false },
+        orderBy: { updatedAt: "desc" },
+        take: 1000,
+    });
 
-        const hits =
-            (response.data?.hits?.hits as Array<{
-                _source: Record<string, unknown>;
-            }>) || [];
-
-        return hits.map((hit) => mapNotificationSource(hit._source));
-    } catch (error) {
-        if ((error as { response?: { status?: number } }).response?.status === 404) {
-            return [];
-        }
-
-        throw error;
-    }
+    return result.map(mapRow);
 };
 
 const getNotificationById = async (
     userId: string,
     notificationId: string,
+    executor?: DbExecutor,
 ): Promise<INotification | undefined> => {
-    try {
-        const response = await esClient.post(`/${notificationAlias}/_search`, {
-            size: 1,
-            query: {
-                bool: {
-                    filter: [
-                        { term: { uId: String(userId) } },
-                        { term: { notiId: String(notificationId) } },
-                    ],
-                    must_not: [{ term: { isDeleted: true } }],
-                },
-            },
-        });
+    const db = getExecutor(executor);
+    const result = await db.notification.findFirst({
+        where: {
+            userId,
+            id: notificationId,
+            isDeleted: false,
+        },
+        orderBy: { updatedAt: "desc" },
+    });
 
-        const hit = response.data?.hits?.hits?.[0] as
-            | { _source: Record<string, unknown> }
-            | undefined;
-
-        return hit?._source ? mapNotificationSource(hit._source) : undefined;
-    } catch (error) {
-        if ((error as { response?: { status?: number } }).response?.status === 404) {
-            return undefined;
-        }
-
-        throw error;
-    }
+    return result ? mapRow(result) : undefined;
 };
 
-const saveNotification = async (notification: INotification): Promise<INotification> => {
-    await esClient.put(`/${notificationIndex}/_doc/${notification.id}?refresh=true`, toNotificationDocument(notification));
+const saveNotification = async (
+    notification: INotification,
+    executor?: DbExecutor,
+): Promise<INotification> => {
+    const db = getExecutor(executor);
+
+    await db.notification.upsert({
+        where: { id: notification.id },
+        create: {
+            id: notification.id,
+            userId: notification.userId,
+            categoryId: notification.categoryId,
+            categoryName: notification.categoryName,
+            amount: notification.amount,
+            description: notification.description || "",
+            telegramChatId: notification.telegramChatId || "",
+            dueDay: notification.dueDay,
+            activeMonths: notification.activeMonths,
+            nextDueAt: BigInt(notification.nextDueAt),
+            paymentStatus: notification.paymentStatus,
+            paidMonth: notification.paidMonth,
+            paidYear: notification.paidYear,
+            currentMonth: notification.currentMonth,
+            currentYear: notification.currentYear,
+            lastPaymentTxnId: notification.lastPaymentTxnId || "",
+            lastReminderPeriod: notification.lastReminderPeriod ?? 0,
+            lastReminderAt:
+                notification.lastReminderAt != null ? BigInt(notification.lastReminderAt) : 0n,
+            createdAt: BigInt(notification.createdAt),
+            updatedAt: BigInt(notification.updatedAt),
+            isDeleted: notification.isDeleted,
+        },
+        update: {
+            categoryId: notification.categoryId,
+            categoryName: notification.categoryName,
+            amount: notification.amount,
+            description: notification.description || "",
+            telegramChatId: notification.telegramChatId || "",
+            dueDay: notification.dueDay,
+            activeMonths: notification.activeMonths,
+            nextDueAt: BigInt(notification.nextDueAt),
+            paymentStatus: notification.paymentStatus,
+            paidMonth: notification.paidMonth,
+            paidYear: notification.paidYear,
+            currentMonth: notification.currentMonth,
+            currentYear: notification.currentYear,
+            lastPaymentTxnId: notification.lastPaymentTxnId || "",
+            lastReminderPeriod: notification.lastReminderPeriod ?? 0,
+            lastReminderAt:
+                notification.lastReminderAt != null ? BigInt(notification.lastReminderAt) : 0n,
+            updatedAt: BigInt(notification.updatedAt),
+            isDeleted: notification.isDeleted,
+        },
+    });
+
     return notification;
 };
 

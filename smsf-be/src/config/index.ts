@@ -45,10 +45,7 @@ const config = {
                 : process.env.AUTH_COOKIE_SECURE === "true",
         domain: process.env.AUTH_COOKIE_DOMAIN || "",
     },
-    ES_URL: process.env.ES_URL || "http://localhost:9200",
-    ES_NAME_PREFIX: process.env.ES_NAME_PREFIX || "",
-    ES_USERNAME: process.env.ES_USERNAME || "elastic",
-    ES_PASSWORD: process.env.ES_PASSWORD || "yoimPhx0710!@",
+    DATABASE_URL: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/smsf-db",
     telegram: {
         botToken: process.env.TELEGRAM_BOT_TOKEN || "",
         defaultChatId: process.env.TELEGRAM_DEFAULT_CHAT_ID || "",

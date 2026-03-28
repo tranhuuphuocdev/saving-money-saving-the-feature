@@ -10,6 +10,7 @@ import {
     listNotificationsByUser,
     saveNotification,
 } from "../repositories/notification.repository";
+import { DbExecutor, withTransaction } from "../lib/prisma";
 import { getCategoryById } from "./category.service";
 import { createTransactionForUser } from "./transaction.service";
 import { getUserProfileById } from "./user.service";
@@ -195,6 +196,7 @@ const buildReminderSummaryMessage = (
 const syncAndPersistNotification = async (
     notification: INotification,
     referenceTimestamp = Date.now(),
+    executor?: DbExecutor,
 ): Promise<INotification> => {
     if (notification.isDeleted) {
         return notification;
@@ -205,7 +207,7 @@ const syncAndPersistNotification = async (
             ...notification,
             isDeleted: true,
             updatedAt: Date.now(),
-        });
+        }, executor);
     }
 
     const normalized = normalizeNotificationForCurrentPeriod(notification, referenceTimestamp);
@@ -214,7 +216,7 @@ const syncAndPersistNotification = async (
         return notification;
     }
 
-    return saveNotification(normalized.notification);
+    return saveNotification(normalized.notification, executor);
 };
 
 const listCurrentNotificationsByUser = async (
@@ -291,48 +293,51 @@ const payNotificationForUser = async (
     walletId: string,
     actorUsername?: string,
 ): Promise<{ notification: INotification; transactionId: string }> => {
-    const existing = await getNotificationById(userId, notificationId);
+    return withTransaction(async (executor) => {
+        const existing = await getNotificationById(userId, notificationId, executor);
 
-    if (!existing) {
-        const error = new Error("Notification not found.");
-        (error as Error & { statusCode?: number }).statusCode = 404;
-        throw error;
-    }
+        if (!existing) {
+            const error = new Error("Notification not found.");
+            (error as Error & { statusCode?: number }).statusCode = 404;
+            throw error;
+        }
 
-    const currentNotification = await syncAndPersistNotification(existing);
+        const currentNotification = await syncAndPersistNotification(existing, Date.now(), executor);
 
-    if (currentNotification.paymentStatus === PAYMENT_STATUS.PAID) {
-        const error = new Error("Notification for current month has already been paid.");
-        (error as Error & { statusCode?: number }).statusCode = 409;
-        throw error;
-    }
+        if (currentNotification.paymentStatus === PAYMENT_STATUS.PAID) {
+            const error = new Error("Notification for current month has already been paid.");
+            (error as Error & { statusCode?: number }).statusCode = 409;
+            throw error;
+        }
 
-    const transactionResult = await createTransactionForUser(
-        userId,
-        {
-            walletId,
-            amount: currentNotification.amount,
-            category: currentNotification.categoryId,
-            description: currentNotification.description || currentNotification.categoryName,
-            type: "expense",
-            timestamp: Date.now(),
-        },
-        actorUsername,
-    );
+        const transactionResult = await createTransactionForUser(
+            userId,
+            {
+                walletId,
+                amount: currentNotification.amount,
+                category: currentNotification.categoryId,
+                description: currentNotification.description || currentNotification.categoryName,
+                type: "expense",
+                timestamp: Date.now(),
+            },
+            actorUsername,
+            executor,
+        );
 
-    const paidNotification: INotification = {
-        ...currentNotification,
-        paymentStatus: PAYMENT_STATUS.PAID,
-        paidMonth: currentNotification.currentMonth,
-        paidYear: currentNotification.currentYear,
-        lastPaymentTxnId: transactionResult.transaction.id,
-        updatedAt: Date.now(),
-    };
+        const paidNotification: INotification = {
+            ...currentNotification,
+            paymentStatus: PAYMENT_STATUS.PAID,
+            paidMonth: currentNotification.currentMonth,
+            paidYear: currentNotification.currentYear,
+            lastPaymentTxnId: transactionResult.transaction.id,
+            updatedAt: Date.now(),
+        };
 
-    return {
-        notification: await saveNotification(paidNotification),
-        transactionId: transactionResult.transaction.id,
-    };
+        return {
+            notification: await saveNotification(paidNotification, executor),
+            transactionId: transactionResult.transaction.id,
+        };
+    });
 };
 
 const syncNotificationStatusesAndSendReminders = async (): Promise<{

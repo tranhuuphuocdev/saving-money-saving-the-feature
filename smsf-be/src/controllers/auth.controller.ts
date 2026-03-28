@@ -16,7 +16,7 @@ import {
     revokeRefreshToken,
     storeRefreshToken,
 } from "../lib/auth-token-store";
-import { esClient, withPrefix } from "../lib/es-client";
+import { prisma } from "../lib/prisma";
 import { listWalletsByUserId } from "../services/wallet.service";
 
 type IUserSource = {
@@ -31,12 +31,6 @@ type IUserSource = {
     isDeleted?: boolean;
 };
 
-type IUserHit = {
-    _id: string;
-    _index: string;
-    _source: IUserSource;
-};
-
 const mapUserSource = (source: IUserSource): IUser => {
     return {
         id: String(source.uId),
@@ -48,57 +42,49 @@ const mapUserSource = (source: IUserSource): IUser => {
     };
 };
 
-const searchUserDocument = async (query: Record<string, unknown>): Promise<IUserHit | undefined> => {
-    const indexes = [withPrefix("user")];
-
-    for (const indexName of indexes) {
-        try {
-            const response = await esClient.post(`/${indexName}/_search`, {
-                size: 1,
-                sort: [{ updatedAt: { order: "desc" } }],
-                query,
-            });
-
-            const hit = response.data?.hits?.hits?.[0] as IUserHit | undefined;
-            if (hit?._source) {
-                return hit;
-            }
-        } catch (error) {
-            const statusCode =
-                (error as { response?: { status?: number } }).response?.status;
-            if (statusCode === 404) {
-                continue;
-            }
-            throw error;
-        }
-    }
-
-    return undefined;
-};
-
-const searchUser = async (query: Record<string, unknown>): Promise<IUser | undefined> => {
-    const hit = await searchUserDocument(query);
-    return hit?._source ? mapUserSource(hit._source) : undefined;
+const mapUserRow = (row: Record<string, unknown>): IUser => {
+    return {
+        id: String(row.id),
+        displayName: String(row.displayName || row.username || row.id),
+        username: String(row.username),
+        password: String(row.password),
+        role: row.role as IUser["role"],
+        telegramChatId: row.telegramChat ? String(row.telegramChat) : undefined,
+    };
 };
 
 const findUserByCredentials = async (
     username: string,
     password: string,
 ): Promise<IUser | undefined> => {
-    return searchUser({
-        bool: {
-            filter: [{ term: { username } }, { term: { password } }],
+    const result = await prisma.user.findFirst({
+        where: {
+            username,
+            password,
+            isDeleted: false,
         },
+        orderBy: { updatedAt: "desc" },
     });
+    return result ? mapUserRow(result as unknown as Record<string, unknown>) : undefined;
 };
 
 const findUserByUsername = async (username: string): Promise<IUser | undefined> => {
-    return searchUser({
-        bool: {
-            filter: [{ term: { username } }],
-            must_not: [{ term: { isDeleted: true } }],
+    const result = await prisma.user.findFirst({
+        where: {
+            username,
+            isDeleted: false,
         },
+        orderBy: { updatedAt: "desc" },
     });
+    return result ? mapUserRow(result as unknown as Record<string, unknown>) : undefined;
+};
+
+const usernameExists = async (username: string): Promise<boolean> => {
+    const count = await prisma.user.count({
+        where: { username },
+    });
+
+    return count > 0;
 };
 
 const hashPassword = (rawPassword: string): string => {
@@ -106,18 +92,40 @@ const hashPassword = (rawPassword: string): string => {
 };
 
 const findUserById = async (userId: string): Promise<IUser | undefined> => {
-    return searchUser({
-        bool: {
-            filter: [{ term: { uId: String(userId) } }],
-            must_not: [{ term: { isDeleted: true } }],
+    const result = await prisma.user.findFirst({
+        where: {
+            id: userId,
+            isDeleted: false,
         },
+        orderBy: { updatedAt: "desc" },
     });
+    return result ? mapUserRow(result as unknown as Record<string, unknown>) : undefined;
 };
 
 const createUserDocument = async (payload: IUserSource): Promise<void> => {
-    const indexName = withPrefix("user");
-
-    await esClient.put(`/${indexName}/_doc/${payload.uId}?refresh=true`, payload);
+    await prisma.$executeRaw`
+        INSERT INTO users (
+            u_id,
+            dn,
+            username,
+            tele_chat_id,
+            password,
+            role,
+            created_at,
+            updated_at,
+            is_deleted
+        ) VALUES (
+            ${payload.uId}::uuid,
+            ${payload.dn || payload.username},
+            ${payload.username},
+            ${payload.teleChatId || null},
+            ${payload.password},
+            ${payload.role},
+            ${BigInt(payload.createdAt || Date.now())},
+            ${BigInt(payload.updatedAt || Date.now())},
+            ${payload.isDeleted ?? false}
+        )
+    `;
 };
 
 const updateUserTelegramChatId = async (
@@ -127,27 +135,28 @@ const updateUserTelegramChatId = async (
         displayName?: string;
     },
 ): Promise<IUser | undefined> => {
-    const hit = await searchUserDocument({
-        bool: {
-            filter: [{ term: { uId: String(userId) } }],
-            must_not: [{ term: { isDeleted: true } }],
+    const existing = await prisma.user.findFirst({
+        where: {
+            id: userId,
+            isDeleted: false,
         },
+        orderBy: { updatedAt: "desc" },
     });
 
-    if (!hit?._source) {
+    if (!existing) {
         return undefined;
     }
 
-    const updatedSource: IUserSource = {
-        ...hit._source,
-        teleChatId: payload.telegramChatId || "",
-        dn: payload.displayName || hit._source.dn || hit._source.username,
-        updatedAt: Date.now(),
-    };
+    const updatedResult = await prisma.user.update({
+        where: { id: userId },
+        data: {
+            telegramChat: payload.telegramChatId ?? "",
+            displayName: payload.displayName || existing.displayName || existing.username,
+            updatedAt: BigInt(Date.now()),
+        },
+    });
 
-    await esClient.put(`/${hit._index}/_doc/${hit._id}?refresh=true`, updatedSource);
-
-    return mapUserSource(updatedSource);
+    return mapUserRow(updatedResult as unknown as Record<string, unknown>);
 };
 
 /**
@@ -343,8 +352,8 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
             });
         }
 
-        const existingUser = await findUserByUsername(safeUsername);
-        if (existingUser) {
+        const existingUsername = await usernameExists(safeUsername);
+        if (existingUsername) {
             return res.status(409).json({
                 success: false,
                 message: "Username already exists.",
@@ -387,9 +396,17 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
             },
         });
     } catch (error) {
+        console.error("Register failed:", error);
+
+        const detailedMessage =
+            error instanceof Error ? error.message : "Unknown error.";
+
         return res.status(500).json({
             success: false,
-            message: "Register failed.",
+            message:
+                config.nodeEnv === "production"
+                    ? "Register failed."
+                    : `Register failed: ${detailedMessage}`,
         });
     }
 };

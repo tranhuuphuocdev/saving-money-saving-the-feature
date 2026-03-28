@@ -1,4 +1,4 @@
-export type TypeDashboardTab = 'menu' | 'transactions' | 'dashboard' | 'calendar' | 'wallets' | 'logout';
+export type TypeDashboardTab = 'menu' | 'transactions' | 'dashboard' | 'calendar' | 'wallets';
 export type TypeTransactionKind = 'income' | 'expense';
 
 export interface IExpenseCategoryItem {
@@ -70,4 +70,31 @@ export interface ISpendingTrendData {
     averageDailyBudget: number;
     maxValue: number;
     points: ISpendingTrendPoint[];
+}
+
+export interface IBudgetJarItem {
+    id: string;
+    name: string;
+    month: number;
+    year: number;
+    targetAmount: number;
+    spentAmount: number;
+    progressPercent: number;
+    remainingAmount: number;
+    categoryIds: string[];
+    categoryNames: string[];
+}
+
+export interface IBudgetJarPresetItem {
+    name: string;
+    targetPercent: number;
+    targetAmount?: number;
+    categoryNames: string[];
+}
+
+export interface IBudgetJarPreset {
+    code: string;
+    label: string;
+    incomeHint: string;
+    items: IBudgetJarPresetItem[];
 }

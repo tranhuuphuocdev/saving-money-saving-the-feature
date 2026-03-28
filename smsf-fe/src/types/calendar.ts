@@ -70,6 +70,7 @@ export type TypeCategoryKind = 'income' | 'expense';
 export interface ICategoryItem {
     id: string;
     name: string;
+    icon?: string;
     type: TypeCategoryKind;
     isDefault: boolean;
 }

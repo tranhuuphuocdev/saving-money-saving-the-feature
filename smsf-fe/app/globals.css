@@ -225,6 +225,27 @@ input::placeholder {
     font-weight: 700;
 }
 
+.budget-jar-progress {
+    position: relative;
+    overflow: hidden;
+}
+
+.budget-jar-progress::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        110deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.1) 30%,
+        rgba(255, 255, 255, 0.35) 50%,
+        rgba(255, 255, 255, 0.1) 70%,
+        transparent 100%
+    );
+    transform: translateX(-120%);
+    animation: budget-wave 1.9s ease-in-out infinite;
+}
+
 @media (min-width: 768px) {
     .page-container {
         padding: 20px 16px 136px;
@@ -272,5 +293,14 @@ input::placeholder {
     }
     to {
         background-position: 100% 50%;
+    }
+}
+
+@keyframes budget-wave {
+    0% {
+        transform: translateX(-120%);
+    }
+    100% {
+        transform: translateX(120%);
     }
 }

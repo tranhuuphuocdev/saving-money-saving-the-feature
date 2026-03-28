@@ -1,6 +1,6 @@
 {
   "name": "smsf-be",
-  "version": "1.0.0-202603272340",
+  "version": "1.0.0-202603272340-202603272353",
   "description": "Save Money Save The Feature - Backend API",
   "main": "dist/server.js",
   "scripts": {

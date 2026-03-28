@@ -25,6 +25,7 @@ Thumbs.db
 # -----------------------------
 **/dist/
 **/.next/
+**/.next_corrupted_*/
 **/out/
 **/build/
 **/.turbo/

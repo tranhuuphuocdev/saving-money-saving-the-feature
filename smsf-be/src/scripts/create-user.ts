@@ -1,58 +1,31 @@
-import { createHash, randomUUID } from 'node:crypto';
-import axios from 'axios';
-import config from '../config';
-import { withPrefix } from '../lib/es-client';
-import { ICreateUserPayload } from '../interfaces/create-user.interface';
+import { createHash, randomUUID } from "node:crypto";
+import { query } from "../lib/db";
 
-type IWalletType = 'momo' | 'bank' | 'cash';
-
-interface ICreateWalletPayload {
-    wId: string;
-    uId: string;
-    wName: string;
-    wType: IWalletType;
-    amount: number;
-    createdAt: number;
-    updatedAt: number;
-}
+type IWalletType = "momo" | "bank" | "cash";
 
 const DEFAULT_WALLETS: Array<{ type: IWalletType; name: string }> = [
-    { type: 'momo', name: 'Ví Momo' },
-    { type: 'bank', name: 'Ngân hàng' },
-    { type: 'cash', name: 'Tiền mặt' },
+    { type: "momo", name: "Ví Momo" },
+    { type: "bank", name: "Ngân hàng" },
+    { type: "cash", name: "Tiền mặt" },
 ];
 
 function hashPassword(password: string): string {
-    return createHash('sha256').update(password).digest('hex');
+    return createHash("sha256").update(password).digest("hex");
 }
 
 async function createDefaultWalletsForUser(userId: string, timestamp: number): Promise<void> {
-    const walletIndexName = withPrefix('wallet');
-
     for (const wallet of DEFAULT_WALLETS) {
-        const walletPayload: ICreateWalletPayload = {
-            wId: randomUUID(),
-            uId: userId,
-            wName: wallet.name,
-            wType: wallet.type,
-            amount: 0,
-            createdAt: timestamp,
-            updatedAt: timestamp,
-        };
+        const wId = randomUUID();
 
-        await axios({
-            url: `${config.ES_URL}/${walletIndexName}/_doc/${walletPayload.wId}`,
-            method: 'put',
-            data: walletPayload,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
+        await query(
+            `INSERT INTO wallets (w_id, u_id, w_name, w_type, amount, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [wId, userId, wallet.name, wallet.type, 0, timestamp, timestamp],
+        );
 
-        console.log('Create wallet success', {
-            index: walletIndexName,
-            walletId: walletPayload.wId,
-            walletType: walletPayload.wType,
+        console.log("Create wallet success", {
+            walletId: wId,
+            walletType: wallet.type,
             userId,
         });
     }
@@ -60,47 +33,32 @@ async function createDefaultWalletsForUser(userId: string, timestamp: number): P
 
 async function createUser(): Promise<void> {
     const now = Date.now();
-    const rawPassword = process.env.USER_PASSWORD || '123456';
+    const rawPassword = process.env.USER_PASSWORD || "123456";
 
-    const payload: ICreateUserPayload = {
-        uId: process.env.USER_ID || randomUUID(),
-        dn: process.env.USER_DN || 'dunglamtraitimanhdau',
-        username: process.env.USER_USERNAME || 'rampo',
-        teleChatId: process.env.USER_TELEGRAM_CHAT_ID || undefined,
-        password: hashPassword(rawPassword),
-        role: process.env.USER_ROLE || 'admin',
-        createdAt: now,
-        updatedAt: now,
-        isDeleted: false,
-    };
+    const uId = process.env.USER_ID || randomUUID();
+    const dn = process.env.USER_DN || "dunglamtraitimanhdau";
+    const username = process.env.USER_USERNAME || "rampo";
+    const teleChatId = process.env.USER_TELEGRAM_CHAT_ID || null;
+    const password = hashPassword(rawPassword);
+    const role = process.env.USER_ROLE || "admin";
 
-    const indexName = withPrefix('user');
-    const url = `${config.ES_URL}/${indexName}/_doc/${payload.uId}`;
+    await query(
+        `INSERT INTO users (u_id, dn, username, tele_chat_id, password, role, created_at, updated_at, is_deleted)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [uId, dn, username, teleChatId, password, role, now, now, false],
+    );
 
-    const response = await axios({
-        url,
-        method: 'put',
-        data: payload,
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    });
-
-    const result = response.data;
-
-    console.log('Create user success');
+    console.log("Create user success");
     console.log({
-        index: indexName,
-        id: payload.uId,
-        username: payload.username,
-        role: payload.role,
-        result: result.result,
+        id: uId,
+        username,
+        role,
     });
 
-    await createDefaultWalletsForUser(payload.uId, now);
+    await createDefaultWalletsForUser(uId, now);
 }
 
 createUser().catch((error) => {
-    console.error('Create user script error:', error.message);
+    console.error("Create user script error:", (error as Error).message);
     process.exit(1);
 });

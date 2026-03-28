@@ -10,7 +10,13 @@ import {
     IWalletItem,
     IWalletSummary,
 } from '@/types/calendar';
-import { ISavingGoalData, ISavingsRateData, ISpendingTrendData } from '@/types/dashboard';
+import {
+    IBudgetJarItem,
+    IBudgetJarPreset,
+    ISavingGoalData,
+    ISavingsRateData,
+    ISpendingTrendData,
+} from '@/types/dashboard';
 
 interface IApiResponse<T> {
     success: boolean;
@@ -37,6 +43,7 @@ interface ITransactionQueryResponse {
 interface ICategoryApiItem {
     id: string;
     name: string;
+    icon?: string;
     type: 'income' | 'expense';
     isDefault: boolean;
 }
@@ -111,9 +118,27 @@ export async function getCategoriesRequest(
     return response.data.data.map((item) => ({
         id: item.id,
         name: item.name,
+        icon: item.icon,
         type: item.type,
         isDefault: item.isDefault,
     }));
+}
+
+export async function createCategoryRequest(payload: {
+    name: string;
+    type: 'income' | 'expense';
+    icon?: string;
+}): Promise<ICategoryItem> {
+    const response = await api.post<IApiResponse<ICategoryApiItem>>('/categories', payload);
+    const item = response.data.data;
+
+    return {
+        id: item.id,
+        name: item.name,
+        icon: item.icon,
+        type: item.type,
+        isDefault: item.isDefault,
+    };
 }
 
 export async function getRecentTransactionsRequest(
@@ -214,6 +239,48 @@ export async function upsertSavingGoalRequest(payload: {
 }): Promise<ISavingGoalData> {
     const response = await api.put<IApiResponse<ISavingGoalData>>(
         '/budgets/saving-goal',
+        payload,
+    );
+
+    return response.data.data;
+}
+
+export async function getBudgetJarsRequest(params: {
+    month: number;
+    year: number;
+}): Promise<{ month: number; year: number; jars: IBudgetJarItem[] }> {
+    const response = await api.get<IApiResponse<{ month: number; year: number; jars: IBudgetJarItem[] }>>(
+        '/budgets/jars',
+        { params },
+    );
+
+    return response.data.data;
+}
+
+export async function getBudgetJarSuggestionsRequest(params?: {
+    incomeAmount?: number;
+}): Promise<IBudgetJarPreset[]> {
+    const response = await api.get<IApiResponse<IBudgetJarPreset[]>>(
+        '/budgets/jar-suggestions',
+        { params },
+    );
+
+    return response.data.data;
+}
+
+export async function setupBudgetJarsRequest(payload: {
+    month: number;
+    year: number;
+    incomeAmount?: number;
+    jars: Array<{
+        name: string;
+        targetAmount?: number;
+        targetPercent?: number;
+        categoryIds: string[];
+    }>;
+}): Promise<{ month: number; year: number; jars: IBudgetJarItem[] }> {
+    const response = await api.put<IApiResponse<{ month: number; year: number; jars: IBudgetJarItem[] }>>(
+        '/budgets/jars/setup',
         payload,
     );
 

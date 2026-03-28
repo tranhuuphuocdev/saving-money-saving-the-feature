@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("u_id")
+  displayName  String?  @map("dn")
+  username     String   @unique
+  telegramChat String?  @map("tele_chat_id")
+  password     String
+  role         String   @default("user")
+  createdAt    BigInt   @map("created_at")
+  updatedAt    BigInt   @map("updated_at")
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+
+  wallets       Wallet[]
+  transactions  Transaction[]
+  budgets       Budget[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Category {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("cate_id")
+  userId     String       @map("u_id")
+  name       String       @map("cate_name")
+  icon       String?      @map("cate_icon")
+  type       String       @map("cate_type")
+  isDefault  Boolean      @default(false) @map("is_default")
+  isDeleted  Boolean      @default(false) @map("is_deleted")
+  createdAt  BigInt       @map("created_at")
+  updatedAt  BigInt       @map("updated_at")
+
+  budgets          Budget[]
+  budgetCategoryMaps BudgetCategoryMap[]
+  transactions     Transaction[]
+  notifications    Notification[]
+
+  @@map("categories")
+}
+
+model Wallet {
+  id        String   @id @map("w_id")
+  userId    String   @db.Uuid @map("u_id")
+  name      String   @map("w_name")
+  type      String   @default("cash") @map("w_type")
+  amount    Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt BigInt   @map("created_at")
+  updatedAt BigInt   @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@map("wallets")
+}
+
+model Budget {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("b_id")
+  userId      String     @db.Uuid @map("u_id")
+  categoryId  String     @db.Uuid @map("cate_id")
+  name        String     @map("bud_name")
+  amount      Decimal    @default(0) @db.Decimal(18, 2) @map("bud_amount")
+  spentAmount Decimal    @default(0) @db.Decimal(18, 2) @map("bud_spent")
+  description String?
+  type        String     @map("bud_type")
+  periodMonth Int        @db.SmallInt @map("period_month")
+  periodYear  Int        @db.SmallInt @map("period_year")
+  createdAt   BigInt     @map("created_at")
+  updatedAt   BigInt     @map("updated_at")
+
+  user               User                @relation(fields: [userId], references: [id])
+  category           Category            @relation(fields: [categoryId], references: [id])
+  budgetCategoryMaps BudgetCategoryMap[]
+
+  @@map("budgets")
+}
+
+model BudgetCategoryMap {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("bcm_id")
+  budgetId   String   @db.Uuid @map("b_id")
+  categoryId String   @db.Uuid @map("cate_id")
+  createdAt  BigInt   @map("created_at")
+  updatedAt  BigInt   @map("updated_at")
+
+  budget   Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([budgetId, categoryId])
+  @@map("budget_category_maps")
+}
+
+model Transaction {
+  id            String          @id @map("txn_id")
+  userId        String          @db.Uuid @map("u_id")
+  userName      String?         @map("u_name")
+  walletId      String          @map("w_id")
+  categoryId    String          @db.Uuid @map("cate_id")
+  categoryName  String?         @map("cate_name")
+  budgetId      String?         @db.Uuid @map("b_id")
+  budgetName    String?         @map("b_name")
+  type          String          @map("txn_type")
+  amount        Decimal         @default(0) @db.Decimal(18, 2)
+  note          String?
+  transactionAt BigInt          @map("txn_at")
+  createdAt     BigInt          @map("created_at")
+  updatedAt     BigInt          @map("updated_at")
+  isDeleted     Boolean         @default(false) @map("is_deleted")
+
+  user     User     @relation(fields: [userId], references: [id])
+  wallet   Wallet   @relation(fields: [walletId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@map("transactions")
+}
+
+model Notification {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("noti_id")
+  userId             String        @db.Uuid @map("u_id")
+  categoryId         String        @db.Uuid @map("cate_id")
+  categoryName       String?       @map("cate_name")
+  amount             Decimal       @default(0) @db.Decimal(18, 2)
+  description        String?
+  telegramChatId     String?       @map("tele_chat_id")
+  dueDay             Int           @db.SmallInt @map("due_day")
+  activeMonths       Int           @default(12) @db.SmallInt @map("active_months")
+  nextDueAt          BigInt        @map("next_due_at")
+  paymentStatus      String        @default("unpaid") @map("payment_status")
+  paidMonth          Int           @default(0) @db.SmallInt @map("paid_month")
+  paidYear           Int           @default(0) @db.SmallInt @map("paid_year")
+  currentMonth       Int           @default(0) @db.SmallInt @map("current_month")
+  currentYear        Int           @default(0) @db.SmallInt @map("current_year")
+  lastPaymentTxnId   String?       @map("last_payment_txn_id")
+  lastReminderPeriod Int?          @map("last_reminder_period")
+  lastReminderAt     BigInt?       @map("last_reminder_at")
+  createdAt          BigInt        @map("created_at")
+  updatedAt          BigInt        @map("updated_at")
+  isDeleted          Boolean       @default(false) @map("is_deleted")
+
+  user     User     @relation(fields: [userId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@map("notifications")
+}

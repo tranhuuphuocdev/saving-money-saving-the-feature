@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
+import { createCategoryRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND, formatTimeLabel, formatTransactionTypeLabel } from '@/lib/formatters';
 import {
     ICalendarTransaction,
@@ -31,6 +32,10 @@ interface ITransactionModalProps {
     ) => Promise<void>;
     onDeleteTransaction: (transactionId: string) => Promise<void>;
 }
+
+const CATEGORY_ICON_OPTIONS = [
+    '🍜', '🛵', '🛒', '🏠', '💡', '🎓', '💊', '🎬', '🛍️', '💘', '📦', '💼', '💰', '📈', '🎁', '🧾',
+];
 
 export function TransactionModal({
     isOpen,
@@ -72,22 +77,38 @@ export function TransactionModal({
     const [errorMessage, setErrorMessage] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
+    const [localCategories, setLocalCategories] = useState<ICategoryItem[]>(categories);
+    const [isCreateCategoryOpen, setIsCreateCategoryOpen] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [newCategoryIcon, setNewCategoryIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
+    useEffect(() => {
+        setLocalCategories(categories);
+    }, [categories]);
+
     const categoryNameMap = useMemo(() => {
-        return categories.reduce<Record<string, string>>((acc, category) => {
+        return localCategories.reduce<Record<string, string>>((acc, category) => {
             acc[category.id] = category.name;
             return acc;
         }, {});
-    }, [categories]);
+    }, [localCategories]);
+
+    const categoryIconMap = useMemo(() => {
+        return localCategories.reduce<Record<string, string>>((acc, category) => {
+            acc[category.id] = category.icon || '';
+            return acc;
+        }, {});
+    }, [localCategories]);
 
     const categoryOptions = useMemo(() => {
-        const filtered = categories.filter((item) => item.type === type);
-        return filtered.length > 0 ? filtered : categories;
-    }, [categories, type]);
+        const filtered = localCategories.filter((item) => item.type === type);
+        return filtered.length > 0 ? filtered : localCategories;
+    }, [localCategories, type]);
 
     const categoryGridOptions = useMemo(() => {
         const optionsWithoutOther = categoryOptions.filter(
@@ -163,8 +184,8 @@ export function TransactionModal({
         setWalletId(richestWalletId);
         setType('expense');
         setCategoryId(
-            categories.find((item) => item.type === 'expense')?.id ||
-                categories[0]?.id ||
+            localCategories.find((item) => item.type === 'expense')?.id ||
+                localCategories[0]?.id ||
                 '',
         );
         setAmount('');
@@ -187,6 +208,50 @@ export function TransactionModal({
         setIsFormOpen(false);
         setEditingTransactionId(null);
         setErrorMessage('');
+    };
+
+    const closeCreateCategoryModal = () => {
+        setIsCreateCategoryOpen(false);
+    };
+
+    const submitCreateCategory = async () => {
+        const safeName = newCategoryName.trim();
+
+        if (!safeName) {
+            setErrorMessage('Tên danh mục mới không được để trống.');
+            return;
+        }
+
+        setIsCreatingCategory(true);
+
+        try {
+            const created = await createCategoryRequest({
+                name: safeName,
+                type,
+                icon: newCategoryIcon,
+            });
+
+            setLocalCategories((prev) => {
+                const existing = prev.find((item) => item.id === created.id);
+                if (existing) {
+                    return prev;
+                }
+
+                return [created, ...prev];
+            });
+
+            setCategoryId(created.id);
+            setIsCreateCategoryOpen(false);
+            setNewCategoryName('');
+            setErrorMessage('');
+        } catch (error) {
+            setErrorMessage(
+                (error as { response?: { data?: { message?: string } } })?.response?.data
+                    ?.message || 'Tạo danh mục thất bại.',
+            );
+        } finally {
+            setIsCreatingCategory(false);
+        }
     };
 
     const validateForm = (): { isValid: boolean; amountValue: number } => {
@@ -472,7 +537,16 @@ export function TransactionModal({
                                         <button
                                             key={item.id}
                                             type="button"
-                                            onClick={() => setCategoryId(item.id)}
+                                            onClick={() => {
+                                                if (item.id === OTHER_CATEGORY_ID) {
+                                                    setNewCategoryName('');
+                                                    setNewCategoryIcon(CATEGORY_ICON_OPTIONS[0]);
+                                                    setIsCreateCategoryOpen(true);
+                                                    return;
+                                                }
+
+                                                setCategoryId(item.id);
+                                            }}
                                             style={{
                                                 minHeight: 44,
                                                 borderRadius: 10,
@@ -489,9 +563,17 @@ export function TransactionModal({
                                                 textAlign: 'center',
                                                 lineHeight: 1.25,
                                                 wordBreak: 'break-word',
+                                                display: 'grid',
+                                                gap: 2,
+                                                placeItems: 'center',
                                             }}
                                         >
-                                            {item.name}
+                                            {item.id === OTHER_CATEGORY_ID ? null : (
+                                                <span style={{ fontSize: 15, lineHeight: 1 }}>
+                                                    {item.icon || '🧩'}
+                                                </span>
+                                            )}
+                                            <span>{item.name}</span>
                                         </button>
                                     );
                                 })}
@@ -663,6 +745,9 @@ export function TransactionModal({
                                     >
                                         <div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                <span style={{ fontSize: 14, lineHeight: 1 }}>
+                                                    {categoryIconMap[transaction.category] || '🧩'}
+                                                </span>
                                                 <div style={{ fontSize: 13, fontWeight: 700 }}>
                                                     {transaction.cateName || categoryNameMap[transaction.category] || transaction.category}
                                                 </div>
@@ -764,6 +849,152 @@ export function TransactionModal({
                     </div>
                 </div>
             )}
+
+            {isCreateCategoryOpen ? (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 920,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        padding: '12px',
+                        background: 'rgba(2, 8, 23, 0.5)',
+                        backdropFilter: 'blur(2px)',
+                    }}
+                >
+                    <div
+                        style={{
+                            width: 'min(calc(100% - 24px), 480px)',
+                            maxHeight: 'calc(100dvh - 24px)',
+                            borderRadius: 18,
+                            background: 'var(--surface-base)',
+                            border: '1px solid var(--surface-border)',
+                            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div
+                            style={{
+                                padding: '12px 14px',
+                                borderBottom: '1px solid var(--surface-border)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                            }}
+                        >
+                            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>Tạo danh mục mới</h3>
+                            <button
+                                onClick={closeCreateCategoryModal}
+                                style={{
+                                    width: 30,
+                                    height: 30,
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: 'var(--chip-bg)',
+                                    color: 'var(--foreground)',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '12px 14px', display: 'grid', gap: 10, overflowY: 'auto' }}>
+                            <input
+                                type="text"
+                                value={newCategoryName}
+                                onChange={(event) => setNewCategoryName(event.target.value)}
+                                placeholder="Tên category (VD: Cà phê sáng)"
+                                style={{
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-soft)',
+                                    color: 'var(--foreground)',
+                                    fontSize: 13,
+                                }}
+                            />
+
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
+                                Chọn icon
+                            </div>
+
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                                    gap: 8,
+                                }}
+                            >
+                                {CATEGORY_ICON_OPTIONS.map((icon) => {
+                                    const selected = icon === newCategoryIcon;
+
+                                    return (
+                                        <button
+                                            key={icon}
+                                            type="button"
+                                            onClick={() => setNewCategoryIcon(icon)}
+                                            style={{
+                                                borderRadius: 10,
+                                                border: selected
+                                                    ? '1px solid var(--theme-gradient-start)'
+                                                    : '1px solid var(--surface-border)',
+                                                background: selected ? 'var(--chip-bg)' : 'var(--surface-soft)',
+                                                color: 'var(--foreground)',
+                                                aspectRatio: '1 / 1',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                fontSize: 20,
+                                            }}
+                                        >
+                                            {icon}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div
+                            style={{
+                                padding: '12px 14px',
+                                borderTop: '1px solid var(--surface-border)',
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                gap: 8,
+                            }}
+                        >
+                            <button
+                                onClick={closeCreateCategoryModal}
+                                style={{
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'transparent',
+                                    color: 'var(--foreground)',
+                                    borderRadius: 10,
+                                    padding: '10px 12px',
+                                    fontWeight: 700,
+                                }}
+                            >
+                                Hủy
+                            </button>
+                            <PrimaryButton
+                                onClick={submitCreateCategory}
+                                disabled={isCreatingCategory}
+                                style={{
+                                    padding: '10px 12px',
+                                    opacity: isCreatingCategory ? 0.7 : 1,
+                                }}
+                            >
+                                {isCreatingCategory ? 'Đang tạo...' : 'Tạo category'}
+                            </PrimaryButton>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </>,
         document.body,
     );

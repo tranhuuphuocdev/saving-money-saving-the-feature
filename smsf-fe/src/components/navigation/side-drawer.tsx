@@ -1,25 +1,24 @@
 'use client';
 
-import { MoonStar, Palette, ShieldCheck, SunMedium, UserRound, WalletCards, X } from 'lucide-react';
+import { LogOut, ShieldCheck, UserRound, WalletCards, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { useLockBodyScroll } from '@/lib/ui/use-lock-body-scroll';
-import { useTheme } from '@/providers/theme-provider';
 import { IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
 
 interface ISideDrawerProps {
     isOpen: boolean;
     onClose: () => void;
+    onLogout: () => void;
     user: IUserSession | null;
     totalWalletBalance: number;
     wallets: IWalletItem[];
 }
 
-export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets }: ISideDrawerProps) {
+export function SideDrawer({ isOpen, onClose, onLogout, user, totalWalletBalance, wallets }: ISideDrawerProps) {
     const router = useRouter();
-    const { theme, toggleTheme } = useTheme();
     useLockBodyScroll(isOpen);
 
     return (
@@ -190,29 +189,25 @@ export function SideDrawer({ isOpen, onClose, user, totalWalletBalance, wallets 
                     </div>
 
                     <button
-                        onClick={toggleTheme}
+                        onClick={() => {
+                            onClose();
+                            onLogout();
+                        }}
                         style={{
                             borderRadius: 16,
                             padding: '14px 16px',
-                            background: 'var(--surface-soft)',
-                            border: '1px solid var(--border)',
+                            background: 'color-mix(in srgb, var(--danger) 14%, var(--surface-soft))',
+                            border: '1px solid color-mix(in srgb, var(--danger) 48%, var(--border))',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             gap: 12,
-                            color: 'var(--foreground)',
+                            color: 'var(--danger)',
+                            fontWeight: 800,
                         }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Palette size={18} color="var(--accent)" />
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 700, fontSize: 14 }}>Đổi giao diện</div>
-                                <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>
-                                    {theme === 'dark' ? 'Chuyển sang light pastel hồng' : 'Chuyển sang dark công nghệ'}
-                                </div>
-                            </div>
-                        </div>
-                        {theme === 'dark' ? <SunMedium size={18} color="var(--accent-text)" /> : <MoonStar size={18} color="var(--accent-text)" />}
+                        <span>Đăng xuất</span>
+                        <LogOut size={18} />
                     </button>
                 </AppCard>
             </aside>

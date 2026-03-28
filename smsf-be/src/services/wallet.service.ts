@@ -1,4 +1,6 @@
 import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
+import { randomUUID } from "node:crypto";
+import { DbExecutor } from "../lib/prisma";
 import {
     findWalletByUserAndName,
     getWalletById,
@@ -13,7 +15,7 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
     const now = Date.now();
     return [
         {
-            id: `wallet-cash-${userId}`,
+            id: randomUUID(),
             userId,
             name: "Tiền mặt",
             type: "cash",
@@ -22,7 +24,7 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
             updatedAt: now,
         },
         {
-            id: `wallet-bank-${userId}`,
+            id: randomUUID(),
             userId,
             name: "Ngân hàng",
             type: "bank",
@@ -31,7 +33,7 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
             updatedAt: now,
         },
         {
-            id: `wallet-momo-${userId}`,
+            id: randomUUID(),
             userId,
             name: "Momo",
             type: "momo",
@@ -70,8 +72,9 @@ const getWalletSummary = async (userId: string): Promise<IWalletSummary> => {
 const findWalletById = async (
     userId: string,
     walletId: string,
+    executor?: DbExecutor,
 ): Promise<IWallet | undefined> => {
-    return getWalletById(userId, walletId);
+    return getWalletById(userId, walletId, executor);
 };
 
 const applyTransactionEffectToWallet = (
@@ -79,6 +82,7 @@ const applyTransactionEffectToWallet = (
     transactionType: "income" | "expense",
     amount: number,
     mode: "apply" | "revert",
+    executor?: DbExecutor,
 ): Promise<IWallet> => {
     const direction = mode === "apply" ? 1 : -1;
     const delta = transactionType === "income" ? amount * direction : -amount * direction;
@@ -90,7 +94,7 @@ const applyTransactionEffectToWallet = (
         throw error;
     }
 
-    return updateWalletBalance(wallet.userId, wallet.id, nextBalance).then(
+    return updateWalletBalance(wallet.userId, wallet.id, nextBalance, executor).then(
         (updatedWallet) => {
             if (!updatedWallet) {
                 const error = new Error("Wallet not found during balance update.");
@@ -142,14 +146,9 @@ const createWalletForUser = async (
 
     const now = Date.now();
     const safeType = type || "custom";
-    const normalizedIdFragment = `${name}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 32) || "wallet";
 
     const newWallet: IWallet = {
-        id: `wallet-${safeType}-${normalizedIdFragment}-${now}`,
+        id: randomUUID(),
         userId,
         name,
         type: safeType,

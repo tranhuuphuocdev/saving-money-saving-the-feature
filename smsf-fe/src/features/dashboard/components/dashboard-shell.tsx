@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BellDot, CircleDollarSign, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-react';
+import { BellDot, CircleDollarSign, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
 import { AppCard } from '@/components/common/app-card';
 import { IconButton } from '@/components/common/icon-button';
 import { BottomNav } from '@/components/navigation/bottom-nav';
@@ -18,6 +18,7 @@ import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest, 
 import { formatCurrencyVND } from '@/lib/formatters';
 import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
 import { useAuth } from '@/providers/auth-provider';
+import { useTheme } from '@/providers/theme-provider';
 import { ICategoryItem } from '@/types/calendar';
 import { IExpenseCategoryItem, IRecentTransaction, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
 import { ICreateNotificationPayload, INotificationItem, IPayNotificationPayload } from '@/types/notification';
@@ -36,6 +37,7 @@ const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 export function DashboardShell() {
     const router = useRouter();
     const { isAuthenticated, isLoading, logout, refreshWallets, user, totalWalletBalance, wallets } = useAuth();
+    const { theme, toggleTheme } = useTheme();
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<TypeDashboardTab>('dashboard');
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -431,11 +433,6 @@ export function DashboardShell() {
             return;
         }
 
-        if (tab === 'logout') {
-            setIsLogoutConfirmOpen(true);
-            return;
-        }
-
         if (tab !== 'calendar') {
             if (firstCalendarDelayTimerRef.current) {
                 window.clearTimeout(firstCalendarDelayTimerRef.current);
@@ -484,6 +481,7 @@ export function DashboardShell() {
             <SideDrawer
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}
+                onLogout={() => setIsLogoutConfirmOpen(true)}
                 user={user}
                 totalWalletBalance={totalWalletBalance}
                 wallets={wallets}
@@ -508,9 +506,14 @@ export function DashboardShell() {
                             <div style={{ fontSize: 21, fontWeight: 900, marginTop: 5 }}>{user?.displayName || user?.username || 'User'}</div>
                             <div style={{ color: 'var(--accent-text)', marginTop: 5, fontWeight: 700, fontSize: 12.5 }}>Trung tâm quản lý tài chính</div>
                         </div>
-                        <IconButton onClick={() => setIsNotificationOpen(true)}>
-                            <BellDot size={18} />
-                        </IconButton>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <IconButton onClick={toggleTheme}>
+                                {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
+                            </IconButton>
+                            <IconButton onClick={() => setIsNotificationOpen(true)}>
+                                <BellDot size={18} />
+                            </IconButton>
+                        </div>
                     </header>
 
                     <AppCard

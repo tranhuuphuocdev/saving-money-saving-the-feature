@@ -1,10 +1,17 @@
 import { Request, Response } from "express";
-import { getSavingGoalByUser, upsertSavingGoalByUser } from "../services/budget.service";
+import {
+    getBudgetJarsByUser,
+    getSavingGoalByUser,
+    listBudgetJarPresets,
+    setupBudgetJarsByUser,
+    upsertSavingGoalByUser,
+} from "../services/budget.service";
 import {
     getOrSetCachedSavingsValue,
     getSavingsCacheKey,
     invalidateSavingsCacheByUser,
 } from "../lib/savings-cache";
+import { IBudgetJarSetupPayload } from "../interfaces/budget.interface";
 
 const parseMonthYear = (
     monthRaw: unknown,
@@ -87,4 +94,122 @@ const upsertSavingGoal = async (
     });
 };
 
-export { getSavingGoal, upsertSavingGoal };
+const getBudgetJars = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const { month, year, error } = parseMonthYear(req.query.month, req.query.year);
+
+    if (error) {
+        return res.status(400).json({ success: false, message: error });
+    }
+
+    const jars = await getBudgetJarsByUser(userId, month, year);
+
+    return res.json({
+        success: true,
+        data: {
+            month,
+            year,
+            jars,
+        },
+    });
+};
+
+const getBudgetJarSuggestions = async (
+    req: Request,
+    res: Response,
+): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const incomeAmountRaw = req.query.incomeAmount;
+    const incomeAmount = incomeAmountRaw !== undefined ? Number(incomeAmountRaw) : undefined;
+
+    if (incomeAmount !== undefined && (!Number.isFinite(incomeAmount) || incomeAmount < 0)) {
+        return res.status(400).json({
+            success: false,
+            message: "incomeAmount must be a non-negative number.",
+        });
+    }
+
+    const presets = await listBudgetJarPresets(userId, incomeAmount);
+
+    return res.json({
+        success: true,
+        data: presets,
+    });
+};
+
+const setupBudgetJars = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const { month, year, error } = parseMonthYear(req.body?.month, req.body?.year);
+    if (error) {
+        return res.status(400).json({ success: false, message: error });
+    }
+
+    const incomeAmount =
+        req.body?.incomeAmount !== undefined ? Number(req.body.incomeAmount) : undefined;
+
+    if (incomeAmount !== undefined && (!Number.isFinite(incomeAmount) || incomeAmount < 0)) {
+        return res.status(400).json({
+            success: false,
+            message: "incomeAmount must be a non-negative number.",
+        });
+    }
+
+    const jars = Array.isArray(req.body?.jars) ? req.body.jars : [];
+    if (!jars.length) {
+        return res.status(400).json({
+            success: false,
+            message: "jars is required and must contain at least one item.",
+        });
+    }
+
+    try {
+        const payload: IBudgetJarSetupPayload = {
+            month,
+            year,
+            incomeAmount,
+            jars,
+        };
+
+        const result = await setupBudgetJarsByUser(userId, payload);
+        invalidateSavingsCacheByUser(userId);
+
+        return res.json({
+            success: true,
+            message: "Budget jars set up successfully.",
+            data: {
+                month,
+                year,
+                jars: result,
+            },
+        });
+    } catch (error) {
+        const statusCode = (error as Error & { statusCode?: number }).statusCode || 500;
+        return res.status(statusCode).json({
+            success: false,
+            message: (error as Error).message,
+        });
+    }
+};
+
+export {
+    getSavingGoal,
+    upsertSavingGoal,
+    getBudgetJars,
+    getBudgetJarSuggestions,
+    setupBudgetJars,
+};

@@ -10,10 +10,11 @@ import { errorHandler } from "./middlewares";
 const app = express();
 
 app.disable("x-powered-by");
-
-if (config.nodeEnv === "production") {
-    app.set("trust proxy", 1);
-}
+// Running behind nginx/gateway, trust the first upstream proxy for client IP.
+// if (config.nodeEnv === "production") {
+//     app.set("trust proxy", 1);
+// }
+app.set("trust proxy", 1);
 
 const allowAllOrigins = config.cors.allowedOrigins.length === 0;
 
