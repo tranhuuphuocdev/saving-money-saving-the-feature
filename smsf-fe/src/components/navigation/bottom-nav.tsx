@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, ChartNoAxesColumn, Menu, ReceiptText } from 'lucide-react';
+import { BookText, Calendar, ChartNoAxesColumn, Menu, ReceiptText } from 'lucide-react';
 import { useState } from 'react';
 import { TypeDashboardTab } from '@/types/dashboard';
 
@@ -14,6 +14,7 @@ const navItems = [
     { key: 'transactions', label: 'Giao dịch', icon: ReceiptText },
     { key: 'dashboard', label: 'Tổng quan', icon: ChartNoAxesColumn },
     { key: 'calendar', label: 'Lịch', icon: Calendar },
+    { key: 'journal', label: 'Nhật ký', icon: BookText },
 ] as const;
 
 export function BottomNav({ activeTab, onSelect }: IBottomNavProps) {
@@ -40,7 +41,7 @@ export function BottomNav({ activeTab, onSelect }: IBottomNavProps) {
                 borderRadius: 999,
                 padding: '8px 10px calc(8px + env(safe-area-inset-bottom, 0px))',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
+                gridTemplateColumns: `repeat(${navItems.length}, 1fr)`,
                 gap: 6,
                 zIndex: 30,
                 overflow: 'visible',

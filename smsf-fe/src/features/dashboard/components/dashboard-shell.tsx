@@ -14,6 +14,8 @@ import { SpendingTrendCard } from '@/features/dashboard/components/charts/spendi
 import { RecentTransactionsCard } from '@/features/dashboard/components/recent-transactions-card';
 import { CalendarShell } from '@/features/calendar/components/calendar-shell';
 import { TransactionsTab } from '@/features/dashboard/components/transactions-tab';
+import { JournalTab } from '@/features/dashboard/components/journal-tab';
+import { FloatingTransactionBubble } from '@/components/common/floating-transaction-bubble';
 import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest, getSpendingTrendRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
@@ -379,6 +381,8 @@ export function DashboardShell() {
 
     if (activeTab === 'transactions') {
         content = <TransactionsTab />;
+    } else if (activeTab === 'journal') {
+        content = <JournalTab />;
     } else if (activeTab === 'calendar') {
         content = (
             <div style={{ position: 'relative' }}>
@@ -478,6 +482,7 @@ export function DashboardShell() {
 
     return (
         <>
+            <FloatingTransactionBubble />
             <SideDrawer
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}

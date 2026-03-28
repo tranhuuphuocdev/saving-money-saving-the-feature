@@ -304,3 +304,69 @@ input::placeholder {
         transform: translateX(120%);
     }
 }
+
+/* ── Floating transaction bubble ── */
+.bubble-ping {
+    animation: bubble-ping-anim 1.7s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.bubble-float {
+    animation: bubble-float-anim 2.6s ease-in-out infinite;
+}
+
+@keyframes bubble-ping-anim {
+    0% {
+        transform: scale(1);
+        opacity: 0.35;
+    }
+    70%, 100% {
+        transform: scale(1.85);
+        opacity: 0;
+    }
+}
+
+@keyframes bubble-float-anim {
+    0%, 100% {
+        transform: translateY(0px) scale(1);
+    }
+    50% {
+        transform: translateY(-6px) scale(1.04);
+    }
+}
+
+/* ── Transaction modal slide animations ── */
+.modal-slide-up {
+    animation: modal-slide-up-anim 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.modal-slide-down {
+    animation: modal-slide-down-anim 0.27s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.modal-backdrop-in {
+    animation: modal-backdrop-in-anim 0.28s ease;
+}
+
+.modal-backdrop-out {
+    animation: modal-backdrop-out-anim 0.27s ease forwards;
+}
+
+@keyframes modal-slide-up-anim {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+@keyframes modal-slide-down-anim {
+    from { transform: translateY(0); }
+    to { transform: translateY(100%); }
+}
+
+@keyframes modal-backdrop-in-anim {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes modal-backdrop-out-anim {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
