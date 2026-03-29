@@ -58,4 +58,7 @@ pnpm-debug.log*
 *.swo
 
 monitor-configs
-docker-compose.monitor.yaml
+docker-compose*
+
+.agent/
+todo.md

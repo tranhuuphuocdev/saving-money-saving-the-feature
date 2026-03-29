@@ -31,11 +31,18 @@ export function FloatingTransactionBubble() {
     const [isClosing, setIsClosing] = useState(false);
 
     // --- Drag state ---
-    const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+    // Use right/bottom instead of left/top so the bubble stays anchored to the
+    // bottom-right viewport corner regardless of URL-bar show/hide on mobile.
+    const [pos, setPos] = useState<{ right: number; bottom: number } | null>(null);
     const isDragging = useRef(false);
     const hasMoved = useRef(false);
-    const dragOffset = useRef({ dx: 0, dy: 0 });
+    // Stores the offset between pointer position and the bubble's right/bottom edge at drag start
+    const dragOffset = useRef({ right: 0, bottom: 0 });
     const pointerDownPos = useRef({ x: 0, y: 0 });
+    const dragTargetRef = useRef<HTMLDivElement | null>(null);
+    const dragPointerIdRef = useRef<number | null>(null);
+    // Tracks when modal was opened to debounce ghost clicks on mobile (300ms delay)
+    const openedAtRef = useRef<number>(0);
 
     // --- Date state ---
     const [day, setDay] = useState(1);
@@ -63,9 +70,8 @@ export function FloatingTransactionBubble() {
 
     useEffect(() => {
         setIsMounted(true);
-        const x = window.innerWidth - 58;
-        const y = window.innerHeight - 118;
-        setPos({ x, y });
+        // Anchor to bottom-right: 18px from right, 98px from bottom (center of 40px bubble)
+        setPos({ right: 18, bottom: 98 });
 
         const now = new Date();
         setDay(now.getDate());
@@ -105,6 +111,7 @@ export function FloatingTransactionBubble() {
         setAmount('');
         setDescription('');
         setErrorMessage('');
+        openedAtRef.current = Date.now();
         setIsOpen(true);
     }, []);
 
@@ -162,14 +169,19 @@ export function FloatingTransactionBubble() {
     }, [localCategories, type]);
 
     // --- Drag handlers ---
+    // NOTE: We defer setPointerCapture until the user has moved past the drag threshold
+    // (6 px). This prevents a light tap or page-scroll gesture that starts on the bubble
+    // from capturing all pointer events and moving the bubble unintentionally on mobile.
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
         isDragging.current = true;
         hasMoved.current = false;
+        dragTargetRef.current = e.currentTarget;
+        dragPointerIdRef.current = e.pointerId;
         pointerDownPos.current = { x: e.clientX, y: e.clientY };
+        // Store the offset as distance from pointer to the right/bottom edges of the viewport
         dragOffset.current = {
-            dx: e.clientX - (pos?.x ?? 0),
-            dy: e.clientY - (pos?.y ?? 0),
+            right: window.innerWidth - e.clientX - (pos?.right ?? 18),
+            bottom: window.innerHeight - e.clientY - (pos?.bottom ?? 98),
         };
     }, [pos]);
 
@@ -177,17 +189,35 @@ export function FloatingTransactionBubble() {
         if (!isDragging.current) return;
         const movedX = Math.abs(e.clientX - pointerDownPos.current.x);
         const movedY = Math.abs(e.clientY - pointerDownPos.current.y);
-        if (movedX > 6 || movedY > 6) hasMoved.current = true;
-        const nx = Math.max(28, Math.min(window.innerWidth - 28, e.clientX - dragOffset.current.dx));
-        const ny = Math.max(28, Math.min(window.innerHeight - 28, e.clientY - dragOffset.current.dy));
-        setPos({ x: nx, y: ny });
+
+        if (!hasMoved.current && (movedX > 6 || movedY > 6)) {
+            hasMoved.current = true;
+            // Only capture pointer AFTER confirming it's a real drag, not a scroll/tap
+            if (dragTargetRef.current && dragPointerIdRef.current !== null) {
+                try { dragTargetRef.current.setPointerCapture(dragPointerIdRef.current); } catch {}
+            }
+        }
+
+        if (!hasMoved.current) return;
+
+        // Recompute right/bottom so bubble stays under the pointer
+        const newRight = Math.max(0, Math.min(
+            window.innerWidth - 28,
+            window.innerWidth - e.clientX - dragOffset.current.right,
+        ));
+        const newBottom = Math.max(0, Math.min(
+            window.innerHeight - 28,
+            window.innerHeight - e.clientY - dragOffset.current.bottom,
+        ));
+        setPos({ right: newRight, bottom: newBottom });
     }, []);
 
     const handlePointerUp = useCallback(() => {
         isDragging.current = false;
+        dragTargetRef.current = null;
+        dragPointerIdRef.current = null;
         if (!hasMoved.current) openModal();
     }, [openModal]);
-
     // --- Submit transaction ---
     const handleSubmit = useCallback(async () => {
         const digits = amount.replace(/\D/g, '');
@@ -259,13 +289,13 @@ export function FloatingTransactionBubble() {
                     onPointerUp={handlePointerUp}
                     style={{
                         position: 'fixed',
-                        left: pos.x,
-                        top: pos.y,
+                        right: pos.right,
+                        bottom: pos.bottom,
                         zIndex: 50,
                         cursor: 'grab',
                         userSelect: 'none',
+                        // Allow vertical scroll to pass through when not dragging
                         touchAction: 'none',
-                        transform: 'translate(-50%, -50%)',
                     }}
                 >
                     <div className="bubble-float" style={{ width: 40, height: 40, position: 'relative' }}>
@@ -315,10 +345,21 @@ export function FloatingTransactionBubble() {
                         justifyContent: 'center',
                     }}
                     className={isClosing ? 'modal-backdrop-out' : 'modal-backdrop-in'}
-                    onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
-                >
+                    onClick={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        // Guard against ghost clicks on mobile (300ms synthetic click after touch)
+                        if (Date.now() - openedAtRef.current < 400) return;
+                        closeModal();
+                    }}
+                    onTouchEnd={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (Date.now() - openedAtRef.current < 400) return;
+                        closeModal();
+                    }}>
                     <div
                         className={isClosing ? 'modal-slide-down' : 'modal-slide-up'}
+                        onClick={(e) => e.stopPropagation()}
+                        onTouchEnd={(e) => e.stopPropagation()}
                         style={{
                             width: 'min(100%, 520px)',
                             maxHeight: '94dvh',

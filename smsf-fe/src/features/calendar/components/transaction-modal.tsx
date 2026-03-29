@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
@@ -82,10 +82,19 @@ export function TransactionModal({
     const [newCategoryName, setNewCategoryName] = useState('');
     const [newCategoryIcon, setNewCategoryIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
     const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+    // Tracks when modal was opened to ignore ghost clicks (300ms delay) on mobile browsers
+    const openedAtRef = useRef<number>(0);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
+
+    // Record the exact time this modal becomes open to debounce ghost clicks
+    useEffect(() => {
+        if (isOpen) {
+            openedAtRef.current = Date.now();
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         setLocalCategories(categories);
@@ -185,8 +194,8 @@ export function TransactionModal({
         setType('expense');
         setCategoryId(
             localCategories.find((item) => item.type === 'expense')?.id ||
-                localCategories[0]?.id ||
-                '',
+            localCategories[0]?.id ||
+            '',
         );
         setAmount('');
         setDescription('');
@@ -329,10 +338,20 @@ export function TransactionModal({
         }
     };
 
+    // Guard against ghost clicks on mobile: ignore close if triggered within 400ms of open
+    const handleBackdropClose = (e: React.MouseEvent | React.TouchEvent) => {
+        e.stopPropagation();
+        if (Date.now() - openedAtRef.current < 400) {
+            return;
+        }
+        onClose();
+    };
+
     return createPortal(
         <>
             <div
-                onClick={onClose}
+                onClick={handleBackdropClose}
+                onTouchEnd={handleBackdropClose}
                 style={{
                     position: 'fixed',
                     inset: 0,
@@ -343,6 +362,8 @@ export function TransactionModal({
 
             {isFormOpen ? (
                 <div
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
                     style={{
                         position: 'fixed',
                         inset: 0,
@@ -366,271 +387,273 @@ export function TransactionModal({
                             flexDirection: 'column',
                         }}
                     >
-                    <div
-                        style={{
-                            padding: '14px 16px',
-                            borderBottom: '1px solid var(--surface-border)',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                        }}
-                    >
-                        <h2 style={{ fontSize: 'clamp(15px, 3vw, 16px)', fontWeight: 700, margin: 0 }}>
-                            {editingTransactionId ? 'Cập nhật giao dịch' : 'Thêm giao dịch mới'}
-                        </h2>
-                        <button
-                            onClick={closeForm}
+                        <div
                             style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 8,
-                                border: 'none',
-                                background: 'var(--chip-bg)',
-                                color: 'var(--foreground)',
-                                display: 'grid',
-                                placeItems: 'center',
-                                cursor: 'pointer',
+                                padding: '14px 16px',
+                                borderBottom: '1px solid var(--surface-border)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
                             }}
                         >
-                            <X size={18} />
-                        </button>
-                    </div>
-
-                    <div
-                        style={{
-                            padding: '14px 16px',
-                            display: 'grid',
-                            gap: 10,
-                            overflowY: 'auto',
-                        }}
-                    >
-
-                        {errorMessage ? (
-                            <div
+                            <h2 style={{ fontSize: 'clamp(15px, 3vw, 16px)', fontWeight: 700, margin: 0 }}>
+                                {editingTransactionId ? 'Cập nhật giao dịch' : 'Thêm giao dịch mới'}
+                            </h2>
+                            <button
+                                onClick={closeForm}
                                 style={{
-                                    fontSize: 12,
-                                    color: '#ef4444',
-                                    background: 'rgba(239,68,68,0.08)',
-                                    border: '1px solid rgba(239,68,68,0.18)',
+                                    width: 32,
+                                    height: 32,
                                     borderRadius: 8,
-                                    padding: '8px 10px',
+                                    border: 'none',
+                                    background: 'var(--chip-bg)',
+                                    color: 'var(--foreground)',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    cursor: 'pointer',
                                 }}
                             >
-                                {errorMessage}
-                            </div>
-                        ) : null}
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                            {(['income', 'expense'] as const).map((transactionType) => (
-                                <button
-                                    key={transactionType}
-                                    onClick={() => setType(transactionType)}
-                                    style={{
-                                        padding: '9px 10px',
-                                        borderRadius: 8,
-                                        border:
-                                            type === transactionType
-                                                ? '2px solid var(--theme-gradient-start)'
-                                                : '1px solid var(--surface-border)',
-                                        background:
-                                            type === transactionType
-                                                ? 'var(--chip-bg)'
-                                                : 'transparent',
-                                        color: 'var(--foreground)',
-                                        fontWeight: 700,
-                                        fontSize: 12,
-                                    }}
-                                >
-                                    {transactionType === 'income' ? '💰 Thu nhập' : '💸 Chi tiêu'}
-                                </button>
-                            ))}
+                                <X size={18} />
+                            </button>
                         </div>
 
-                        <div style={{ position: 'relative' }}>
+                        <div
+                            style={{
+                                padding: '14px 16px',
+                                display: 'grid',
+                                gap: 10,
+                                overflowY: 'auto',
+                            }}
+                        >
+
+                            {errorMessage ? (
+                                <div
+                                    style={{
+                                        fontSize: 12,
+                                        color: '#ef4444',
+                                        background: 'rgba(239,68,68,0.08)',
+                                        border: '1px solid rgba(239,68,68,0.18)',
+                                        borderRadius: 8,
+                                        padding: '8px 10px',
+                                    }}
+                                >
+                                    {errorMessage}
+                                </div>
+                            ) : null}
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                {(['income', 'expense'] as const).map((transactionType) => (
+                                    <button
+                                        key={transactionType}
+                                        onClick={() => setType(transactionType)}
+                                        style={{
+                                            padding: '9px 10px',
+                                            borderRadius: 8,
+                                            border:
+                                                type === transactionType
+                                                    ? '2px solid var(--theme-gradient-start)'
+                                                    : '1px solid var(--surface-border)',
+                                            background:
+                                                type === transactionType
+                                                    ? 'var(--chip-bg)'
+                                                    : 'transparent',
+                                            color: 'var(--foreground)',
+                                            fontWeight: 700,
+                                            fontSize: 12,
+                                        }}
+                                    >
+                                        {transactionType === 'income' ? '💰 Thu nhập' : '💸 Chi tiêu'}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={
+                                        amount
+                                            ? new Intl.NumberFormat('vi-VN').format(
+                                                parseInt(amount.replace(/\D/g, ''), 10) || 0,
+                                            )
+                                            : ''
+                                    }
+                                    onChange={(event) => {
+                                        // Keep only digits in state; display handles formatting
+                                        const digits = event.target.value.replace(/\D/g, '');
+                                        setAmount(digits);
+                                    }}
+                                    placeholder="0"
+                                    style={{
+                                        padding: '10px 12px',
+                                        paddingRight: 44,
+                                        borderRadius: 10,
+                                        border: '1px solid var(--surface-border)',
+                                        background: 'var(--surface-soft)',
+                                        color: 'var(--foreground)',
+                                        fontSize: 14,
+                                        width: '100%',
+                                        boxSizing: 'border-box',
+                                    }}
+                                />
+                                <span
+                                    style={{
+                                        position: 'absolute',
+                                        right: 12,
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        color: 'var(--muted)',
+                                        pointerEvents: 'none',
+                                    }}
+                                >
+                                    ₫
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
+                                    Chọn ví
+                                </div>
+                                {wallets.length === 0 ? (
+                                    <div
+                                        style={{
+                                            padding: '10px 12px',
+                                            borderRadius: 10,
+                                            border: '1px solid var(--surface-border)',
+                                            color: 'var(--muted)',
+                                            fontSize: 12,
+                                        }}
+                                    >
+                                        Chưa có ví để chọn.
+                                    </div>
+                                ) : (
+                                    <CustomSelect
+                                        value={walletId}
+                                        onChange={setWalletId}
+                                        options={wallets.map((wallet) => ({
+                                            value: wallet.id,
+                                            label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
+                                        }))}
+                                    />
+                                )}
+                            </div>
+
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
+                                    Chọn danh mục
+                                </div>
+                                <div
+                                    style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                                        gap: 8,
+                                    }}
+                                >
+                                    {categoryGridOptions.map((item) => {
+                                        const isSelected = item.id === categoryId;
+
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    if (item.id === OTHER_CATEGORY_ID) {
+                                                        setNewCategoryName('');
+                                                        setNewCategoryIcon(CATEGORY_ICON_OPTIONS[0]);
+                                                        setIsCreateCategoryOpen(true);
+                                                        return;
+                                                    }
+
+                                                    setCategoryId(item.id);
+                                                }}
+                                                style={{
+                                                    minHeight: 44,
+                                                    borderRadius: 10,
+                                                    border: isSelected
+                                                        ? '1px solid var(--theme-gradient-start)'
+                                                        : '1px solid var(--surface-border)',
+                                                    background: isSelected
+                                                        ? 'var(--chip-bg)'
+                                                        : 'var(--surface-soft)',
+                                                    color: 'var(--foreground)',
+                                                    fontSize: 'clamp(11px, 2.6vw, 12px)',
+                                                    fontWeight: isSelected ? 700 : 600,
+                                                    padding: '8px 6px',
+                                                    textAlign: 'center',
+                                                    lineHeight: 1.25,
+                                                    wordBreak: 'break-word',
+                                                    display: 'grid',
+                                                    gap: 2,
+                                                    placeItems: 'center',
+                                                }}
+                                            >
+                                                {item.id === OTHER_CATEGORY_ID ? null : (
+                                                    <span style={{ fontSize: 15, lineHeight: 1 }}>
+                                                        {item.icon || '🧩'}
+                                                    </span>
+                                                )}
+                                                <span>{item.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
                             <input
                                 type="text"
-                                inputMode="numeric"
-                                value={
-                                    amount
-                                        ? new Intl.NumberFormat('vi-VN').format(
-                                              parseInt(amount.replace(/\D/g, ''), 10) || 0,
-                                          )
-                                        : ''
-                                }
-                                onChange={(event) => {
-                                    // Keep only digits in state; display handles formatting
-                                    const digits = event.target.value.replace(/\D/g, '');
-                                    setAmount(digits);
-                                }}
-                                placeholder="0"
+                                value={description}
+                                onChange={(event) => setDescription(event.target.value)}
+                                placeholder="Ghi chú"
                                 style={{
                                     padding: '10px 12px',
-                                    paddingRight: 44,
                                     borderRadius: 10,
                                     border: '1px solid var(--surface-border)',
                                     background: 'var(--surface-soft)',
                                     color: 'var(--foreground)',
                                     fontSize: 14,
-                                    width: '100%',
-                                    boxSizing: 'border-box',
                                 }}
                             />
-                            <span
-                                style={{
-                                    position: 'absolute',
-                                    right: 12,
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    color: 'var(--muted)',
-                                    pointerEvents: 'none',
-                                }}
-                            >
-                                ₫
-                            </span>
-                        </div>
 
-                        <div style={{ display: 'grid', gap: 8 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
-                                Chọn ví
-                            </div>
-                            {wallets.length === 0 ? (
-                                <div
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                <button
+                                    onClick={closeForm}
                                     style={{
-                                        padding: '10px 12px',
-                                        borderRadius: 10,
                                         border: '1px solid var(--surface-border)',
-                                        color: 'var(--muted)',
-                                        fontSize: 12,
+                                        background: 'transparent',
+                                        color: 'var(--foreground)',
+                                        borderRadius: 10,
+                                        padding: '10px 12px',
+                                        fontWeight: 700,
                                     }}
                                 >
-                                    Chưa có ví để chọn.
-                                </div>
-                            ) : (
-                                <CustomSelect
-                                    value={walletId}
-                                    onChange={setWalletId}
-                                    options={wallets.map((wallet) => ({
-                                        value: wallet.id,
-                                        label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
-                                    }))}
-                                />
-                            )}
-                        </div>
-
-                        <div style={{ display: 'grid', gap: 8 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
-                                Chọn danh mục
-                            </div>
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                                    gap: 8,
-                                }}
-                            >
-                                {categoryGridOptions.map((item) => {
-                                    const isSelected = item.id === categoryId;
-
-                                    return (
-                                        <button
-                                            key={item.id}
-                                            type="button"
-                                            onClick={() => {
-                                                if (item.id === OTHER_CATEGORY_ID) {
-                                                    setNewCategoryName('');
-                                                    setNewCategoryIcon(CATEGORY_ICON_OPTIONS[0]);
-                                                    setIsCreateCategoryOpen(true);
-                                                    return;
-                                                }
-
-                                                setCategoryId(item.id);
-                                            }}
-                                            style={{
-                                                minHeight: 44,
-                                                borderRadius: 10,
-                                                border: isSelected
-                                                    ? '1px solid var(--theme-gradient-start)'
-                                                    : '1px solid var(--surface-border)',
-                                                background: isSelected
-                                                    ? 'var(--chip-bg)'
-                                                    : 'var(--surface-soft)',
-                                                color: 'var(--foreground)',
-                                                fontSize: 'clamp(11px, 2.6vw, 12px)',
-                                                fontWeight: isSelected ? 700 : 600,
-                                                padding: '8px 6px',
-                                                textAlign: 'center',
-                                                lineHeight: 1.25,
-                                                wordBreak: 'break-word',
-                                                display: 'grid',
-                                                gap: 2,
-                                                placeItems: 'center',
-                                            }}
-                                        >
-                                            {item.id === OTHER_CATEGORY_ID ? null : (
-                                                <span style={{ fontSize: 15, lineHeight: 1 }}>
-                                                    {item.icon || '🧩'}
-                                                </span>
-                                            )}
-                                            <span>{item.name}</span>
-                                        </button>
-                                    );
-                                })}
+                                    Hủy
+                                </button>
+                                <PrimaryButton
+                                    onClick={submitForm}
+                                    disabled={isSubmitting}
+                                    style={{
+                                        padding: '10px 12px',
+                                        opacity: isSubmitting ? 0.7 : 1,
+                                    }}
+                                >
+                                    {isSubmitting ? (
+                                        <span>Đang lưu...</span>
+                                    ) : (
+                                        <>
+                                            <Check size={16} /> Lưu
+                                        </>
+                                    )}
+                                </PrimaryButton>
                             </div>
                         </div>
-
-                        <input
-                            type="text"
-                            value={description}
-                            onChange={(event) => setDescription(event.target.value)}
-                            placeholder="Ghi chú"
-                            style={{
-                                padding: '10px 12px',
-                                borderRadius: 10,
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-soft)',
-                                color: 'var(--foreground)',
-                                fontSize: 14,
-                            }}
-                        />
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                            <button
-                                onClick={closeForm}
-                                style={{
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'transparent',
-                                    color: 'var(--foreground)',
-                                    borderRadius: 10,
-                                    padding: '10px 12px',
-                                    fontWeight: 700,
-                                }}
-                            >
-                                Hủy
-                            </button>
-                            <PrimaryButton
-                                onClick={submitForm}
-                                disabled={isSubmitting}
-                                style={{
-                                    padding: '10px 12px',
-                                    opacity: isSubmitting ? 0.7 : 1,
-                                }}
-                            >
-                                {isSubmitting ? (
-                                    <span>Đang lưu...</span>
-                                ) : (
-                                    <>
-                                        <Check size={16} /> Lưu
-                                    </>
-                                )}
-                            </PrimaryButton>
-                        </div>
-                    </div>
                     </div>
                 </div>
             ) : (
                 <div
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
                     style={{
                         position: 'fixed',
                         inset: 0,
@@ -654,198 +677,198 @@ export function TransactionModal({
                             flexDirection: 'column',
                         }}
                     >
-                    <div
-                        style={{
-                            padding: '14px 16px',
-                            borderBottom: '1px solid var(--surface-border)',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                        }}
-                    >
-                        <h2 style={{ fontSize: 'clamp(15px, 3vw, 16px)', fontWeight: 700, margin: 0 }}>
-                            Ngày {date} {monthName}
-                        </h2>
-                        <button
-                            onClick={onClose}
+                        <div
                             style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 8,
-                                border: 'none',
-                                background: 'var(--chip-bg)',
-                                color: 'var(--foreground)',
-                                display: 'grid',
-                                placeItems: 'center',
-                                cursor: 'pointer',
+                                padding: '14px 16px',
+                                borderBottom: '1px solid var(--surface-border)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
                             }}
                         >
-                            <X size={18} />
-                        </button>
-                    </div>
-
-                    <div
-                        style={{
-                            padding: '12px 16px',
-                            background: 'var(--chip-bg)',
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr 1fr',
-                            gap: 8,
-                            borderBottom: '1px solid var(--surface-border)',
-                        }}
-                    >
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>Thu nhập</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>
-                                +{formatCurrencyVND(totalIncome)}
-                            </div>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>Chi tiêu</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>
-                                -{formatCurrencyVND(totalExpense)}
-                            </div>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>Lệch</div>
-                            <div
+                            <h2 style={{ fontSize: 'clamp(15px, 3vw, 16px)', fontWeight: 700, margin: 0 }}>
+                                Ngày {date} {monthName}
+                            </h2>
+                            <button
+                                onClick={onClose}
                                 style={{
-                                    fontSize: 13,
-                                    fontWeight: 700,
-                                    color: netAmount >= 0 ? '#10b981' : '#ef4444',
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: 'var(--chip-bg)',
+                                    color: 'var(--foreground)',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    cursor: 'pointer',
                                 }}
                             >
-                                {netAmount >= 0 ? '+' : ''}
-                                {formatCurrencyVND(netAmount)}
-                            </div>
+                                <X size={18} />
+                            </button>
                         </div>
-                    </div>
 
-                    <div style={{ flex: 1, overflowY: 'auto' }}>
-                        {transactions.length === 0 ? (
-                            <div style={{ padding: '26px 16px', textAlign: 'center', color: 'var(--muted)' }}>
-                                Không có giao dịch nào
-                            </div>
-                        ) : (
-                            transactions.map((transaction) => {
-                                const transactionWallet = wallets.find(
-                                    (wallet) => wallet.id === transaction.walletId,
-                                );
-
-                                return (
-                                    <div
-                                        key={transaction.id}
-                                        style={{
-                                            padding: '10px 16px',
-                                            borderBottom: '1px solid var(--surface-border)',
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr auto',
-                                            gap: 8,
-                                        }}
-                                    >
-                                        <div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                                <span style={{ fontSize: 14, lineHeight: 1 }}>
-                                                    {categoryIconMap[transaction.category] || '🧩'}
-                                                </span>
-                                                <div style={{ fontSize: 13, fontWeight: 700 }}>
-                                                    {transaction.cateName || categoryNameMap[transaction.category] || transaction.category}
-                                                </div>
-                                                <span
-                                                    style={{
-                                                        padding: '2px 7px',
-                                                        borderRadius: 999,
-                                                        fontSize: 10,
-                                                        fontWeight: 700,
-                                                        color: transaction.type === 'expense' ? '#b91c1c' : '#166534',
-                                                        background: transaction.type === 'expense' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)',
-                                                    }}
-                                                >
-                                                    {formatTransactionTypeLabel(transaction.type)}
-                                                </span>
-                                            </div>
-                                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                                                {transactionWallet?.name || 'Không rõ ví'}
-                                                {transaction.description ? ` • ${transaction.description}` : ''}
-                                            </div>
-                                            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-                                                {formatTimeLabel(transaction.timestamp)}
-                                            </div>
-                                        </div>
-                                        <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
-                                            <div
-                                                style={{
-                                                    fontSize: 13,
-                                                    fontWeight: 700,
-                                                    color:
-                                                        transaction.type === 'income'
-                                                            ? '#15803d'
-                                                            : '#dc2626',
-                                                }}
-                                            >
-                                                {transaction.type === 'income' ? '+' : '-'}
-                                                {formatCurrencyVND(transaction.amount)}
-                                            </div>
-                                            <div style={{ display: 'flex', gap: 6 }}>
-                                                <button
-                                                    onClick={() => beginEditForm(transaction)}
-                                                    style={{
-                                                        border: '1px solid var(--surface-border)',
-                                                        background: 'transparent',
-                                                        color: 'var(--foreground)',
-                                                        borderRadius: 8,
-                                                        width: 28,
-                                                        height: 28,
-                                                        display: 'grid',
-                                                        placeItems: 'center',
-                                                    }}
-                                                >
-                                                    <Pencil size={13} />
-                                                </button>
-                                                <button
-                                                    onClick={() => void removeTransaction(transaction.id)}
-                                                    style={{
-                                                        border: '1px solid rgba(239,68,68,0.25)',
-                                                        background: 'transparent',
-                                                        color: '#ef4444',
-                                                        borderRadius: 8,
-                                                        width: 28,
-                                                        height: 28,
-                                                        display: 'grid',
-                                                        placeItems: 'center',
-                                                    }}
-                                                >
-                                                    <Trash2 size={13} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
-
-                    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--surface-border)' }}>
-                        <button
-                            onClick={beginCreateForm}
+                        <div
                             style={{
-                                width: '100%',
-                                padding: '12px',
-                                borderRadius: 10,
-                                border: '1px solid var(--theme-gradient-start)',
-                                background: 'transparent',
-                                color: 'var(--theme-gradient-start)',
-                                fontWeight: 700,
-                                fontSize: 14,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
+                                padding: '12px 16px',
+                                background: 'var(--chip-bg)',
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr 1fr',
+                                gap: 8,
+                                borderBottom: '1px solid var(--surface-border)',
                             }}
                         >
-                            <Plus size={16} /> Thêm giao dịch
-                        </button>
-                    </div>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>Thu nhập</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>
+                                    +{formatCurrencyVND(totalIncome)}
+                                </div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>Chi tiêu</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>
+                                    -{formatCurrencyVND(totalExpense)}
+                                </div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>Lệch</div>
+                                <div
+                                    style={{
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                        color: netAmount >= 0 ? '#10b981' : '#ef4444',
+                                    }}
+                                >
+                                    {netAmount >= 0 ? '+' : ''}
+                                    {formatCurrencyVND(netAmount)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                            {transactions.length === 0 ? (
+                                <div style={{ padding: '26px 16px', textAlign: 'center', color: 'var(--muted)' }}>
+                                    Không có giao dịch nào
+                                </div>
+                            ) : (
+                                transactions.map((transaction) => {
+                                    const transactionWallet = wallets.find(
+                                        (wallet) => wallet.id === transaction.walletId,
+                                    );
+
+                                    return (
+                                        <div
+                                            key={transaction.id}
+                                            style={{
+                                                padding: '10px 16px',
+                                                borderBottom: '1px solid var(--surface-border)',
+                                                display: 'grid',
+                                                gridTemplateColumns: '1fr auto',
+                                                gap: 8,
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: 14, lineHeight: 1 }}>
+                                                        {categoryIconMap[transaction.category] || '🧩'}
+                                                    </span>
+                                                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                                                        {transaction.cateName || categoryNameMap[transaction.category] || transaction.category}
+                                                    </div>
+                                                    <span
+                                                        style={{
+                                                            padding: '2px 7px',
+                                                            borderRadius: 999,
+                                                            fontSize: 10,
+                                                            fontWeight: 700,
+                                                            color: transaction.type === 'expense' ? '#b91c1c' : '#166534',
+                                                            background: transaction.type === 'expense' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)',
+                                                        }}
+                                                    >
+                                                        {formatTransactionTypeLabel(transaction.type)}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                                                    {transactionWallet?.name || 'Không rõ ví'}
+                                                    {transaction.description ? ` • ${transaction.description}` : ''}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                                                    {formatTimeLabel(transaction.timestamp)}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
+                                                <div
+                                                    style={{
+                                                        fontSize: 13,
+                                                        fontWeight: 700,
+                                                        color:
+                                                            transaction.type === 'income'
+                                                                ? '#15803d'
+                                                                : '#dc2626',
+                                                    }}
+                                                >
+                                                    {transaction.type === 'income' ? '+' : '-'}
+                                                    {formatCurrencyVND(transaction.amount)}
+                                                </div>
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    <button
+                                                        onClick={() => beginEditForm(transaction)}
+                                                        style={{
+                                                            border: '1px solid var(--surface-border)',
+                                                            background: 'transparent',
+                                                            color: 'var(--foreground)',
+                                                            borderRadius: 8,
+                                                            width: 28,
+                                                            height: 28,
+                                                            display: 'grid',
+                                                            placeItems: 'center',
+                                                        }}
+                                                    >
+                                                        <Pencil size={13} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => void removeTransaction(transaction.id)}
+                                                        style={{
+                                                            border: '1px solid rgba(239,68,68,0.25)',
+                                                            background: 'transparent',
+                                                            color: '#ef4444',
+                                                            borderRadius: 8,
+                                                            width: 28,
+                                                            height: 28,
+                                                            display: 'grid',
+                                                            placeItems: 'center',
+                                                        }}
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--surface-border)' }}>
+                            <button
+                                onClick={beginCreateForm}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--theme-gradient-start)',
+                                    background: 'transparent',
+                                    color: 'var(--theme-gradient-start)',
+                                    fontWeight: 700,
+                                    fontSize: 14,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                }}
+                            >
+                                <Plus size={16} /> Thêm giao dịch
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
