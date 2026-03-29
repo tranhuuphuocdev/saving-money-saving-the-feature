@@ -50,6 +50,11 @@ const config = {
         botToken: process.env.TELEGRAM_BOT_TOKEN || "",
         defaultChatId: process.env.TELEGRAM_DEFAULT_CHAT_ID || "",
     },
+    gemini: {
+        apiKey: process.env.GEMINI_API_KEY || "",
+        model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+        timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 15000,
+    },
     tracing: {
         enabled: process.env.TRACING_ENABLED !== "false",
         serviceName: process.env.OTEL_SERVICE_NAME || "smsf-be",

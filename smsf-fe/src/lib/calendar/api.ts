@@ -10,6 +10,7 @@ import {
     IWalletItem,
     IWalletSummary,
 } from '@/types/calendar';
+import { IAiTransactionSuggestion } from '@/types/ai';
 import {
     IBudgetJarItem,
     IBudgetJarPreset,
@@ -46,6 +47,10 @@ interface ICategoryApiItem {
     icon?: string;
     type: 'income' | 'expense';
     isDefault: boolean;
+}
+
+interface IAiAnalyzeResponse {
+    suggestion: IAiTransactionSuggestion;
 }
 
 const toCalendarTransaction = (
@@ -285,4 +290,31 @@ export async function setupBudgetJarsRequest(payload: {
     );
 
     return response.data.data;
+}
+
+export async function analyzeSmartTextRequest(payload: {
+    text: string;
+    walletId?: string;
+    fallbackTimestamp?: number;
+}): Promise<IAiTransactionSuggestion> {
+    const response = await api.post<IApiResponse<IAiAnalyzeResponse>>(
+        '/ai/parse-text',
+        payload,
+    );
+
+    return response.data.data.suggestion;
+}
+
+export async function analyzeSmartReceiptRequest(payload: {
+    imageBase64: string;
+    mimeType: string;
+    walletId?: string;
+    fallbackTimestamp?: number;
+}): Promise<IAiTransactionSuggestion> {
+    const response = await api.post<IApiResponse<IAiAnalyzeResponse>>(
+        '/ai/analyze-receipt',
+        payload,
+    );
+
+    return response.data.data.suggestion;
 }
