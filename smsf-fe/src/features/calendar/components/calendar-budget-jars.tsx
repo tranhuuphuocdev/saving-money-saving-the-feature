@@ -505,7 +505,7 @@ export function CalendarBudgetJars({
 
                                           return (
                                               <div
-                                                  key={`${item.name}-${index}`}
+                                                  key={index}
                                                   style={{
                                                       borderRadius: 10,
                                                       border: '1px solid var(--surface-border)',
