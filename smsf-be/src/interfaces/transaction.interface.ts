@@ -8,6 +8,7 @@ export interface IWallet {
     balance: number;
     createdAt: number;
     updatedAt: number;
+    isActive: boolean;
 }
 
 export interface IWalletSummary {

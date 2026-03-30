@@ -1,7 +1,7 @@
 'use client';
 
 import { CheckCircle2, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
 import { PrimaryButton } from '@/components/common/primary-button';
@@ -10,7 +10,7 @@ import { useAuth } from '@/providers/auth-provider';
 
 export function ProfileShell() {
     const router = useRouter();
-    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet } = useAuth();
+    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive } = useAuth();
 
     const [displayName, setDisplayName] = useState('');
     const [telegramChatId, setTelegramChatId] = useState('');
@@ -24,6 +24,7 @@ export function ProfileShell() {
     const [walletSuccessMessage, setWalletSuccessMessage] = useState('');
     const [isCreatingWallet, setIsCreatingWallet] = useState(false);
 
+    const [togglingWalletId, setTogglingWalletId] = useState<string | null>(null);
     useEffect(() => {
         if (!isLoading && !isAuthenticated) {
             router.replace('/login');
@@ -39,6 +40,15 @@ export function ProfileShell() {
     }, [user?.telegramChatId]);
 
     const hasTelegramId = useMemo(() => Boolean((user?.telegramChatId || '').trim()), [user?.telegramChatId]);
+
+    const handleToggleWalletActive = useCallback(async (walletId: string, current: boolean) => {
+        setTogglingWalletId(walletId);
+        try {
+            await updateWalletActive(walletId, !current);
+        } finally {
+            setTogglingWalletId(null);
+        }
+    }, [updateWalletActive]);
 
     const handleSaveProfile = async () => {
         const nextDisplayName = displayName.trim();
@@ -313,13 +323,57 @@ export function ProfileShell() {
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
                                         gap: 10,
+                                            opacity: wallet.isActive === false ? 0.55 : 1,
                                     }}
                                 >
                                     <div>
                                         <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
-                                        <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase' }}>{wallet.type}</div>
+                                            <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                {wallet.type}
+                                                {wallet.isActive === false && (
+                                                    <span style={{ color: '#ef4444', fontWeight: 700, textTransform: 'none' }}>· Không dùng</span>
+                                                )}
+                                            </div>
                                     </div>
-                                    <div style={{ fontWeight: 800, fontSize: 13.5 }}>{formatCurrencyVND(wallet.balance)}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <div style={{ fontWeight: 800, fontSize: 13.5 }}>{formatCurrencyVND(wallet.balance)}</div>
+                                            <button
+                                                type="button"
+                                                disabled={togglingWalletId === wallet.id}
+                                                onClick={() => void handleToggleWalletActive(wallet.id, wallet.isActive !== false)}
+                                                title={wallet.isActive === false ? 'Bật sử dụng ví' : 'Tắt sử dụng ví'}
+                                                style={{
+                                                    width: 44,
+                                                    height: 26,
+                                                    borderRadius: 999,
+                                                    border: wallet.isActive === false
+                                                        ? '1px solid var(--surface-border)'
+                                                        : '1px solid color-mix(in srgb, var(--theme-gradient-start) 65%, var(--surface-border))',
+                                                    background: wallet.isActive === false
+                                                        ? 'var(--surface-strong)'
+                                                        : 'color-mix(in srgb, var(--theme-gradient-start) 32%, var(--surface-soft))',
+                                                    padding: 2,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: wallet.isActive === false ? 'flex-start' : 'flex-end',
+                                                    transition: 'all 180ms ease',
+                                                    opacity: togglingWalletId === wallet.id ? 0.6 : 1,
+                                                }}
+                                            >
+                                                <span
+                                                    style={{
+                                                        width: 20,
+                                                        height: 20,
+                                                        borderRadius: 999,
+                                                        background: wallet.isActive === false ? 'var(--muted)' : 'var(--theme-gradient-start)',
+                                                        boxShadow: wallet.isActive === false
+                                                            ? 'none'
+                                                            : '0 0 0 2px color-mix(in srgb, var(--theme-gradient-start) 18%, transparent)',
+                                                        transition: 'all 180ms ease',
+                                                    }}
+                                                />
+                                            </button>
+                                        </div>
                                 </div>
                             ))}
                         </div>

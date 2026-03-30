@@ -9,6 +9,7 @@ import {
     upsertWallet,
     upsertWalletsBulk,
     updateWalletBalance,
+    setWalletActive,
 } from "../repositories/wallet.repository";
 
 const buildDefaultWallets = (userId: string): IWallet[] => {
@@ -22,6 +23,7 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
             balance: 0,
             createdAt: now,
             updatedAt: now,
+                isActive: true,
         },
         {
             id: randomUUID(),
@@ -31,6 +33,7 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
             balance: 0,
             createdAt: now,
             updatedAt: now,
+                isActive: true,
         },
         {
             id: randomUUID(),
@@ -40,6 +43,7 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
             balance: 0,
             createdAt: now,
             updatedAt: now,
+                isActive: true,
         },
     ];
 };
@@ -155,10 +159,27 @@ const createWalletForUser = async (
         balance,
         createdAt: now,
         updatedAt: now,
+            isActive: true,
     };
 
     return upsertWallet(newWallet);
 };
+
+    const setWalletActiveForUser = async (
+        userId: string,
+        walletId: string,
+        isActive: boolean,
+    ): Promise<IWallet> => {
+        const updated = await setWalletActive(userId, walletId, isActive);
+
+        if (!updated) {
+            const error = new Error("Wallet not found.");
+            (error as Error & { statusCode?: number }).statusCode = 404;
+            throw error;
+        }
+
+        return updated;
+    };
 
 export {
     listWalletsByUserId,
@@ -166,4 +187,5 @@ export {
     findWalletById,
     applyTransactionEffectToWallet,
     createWalletForUser,
+        setWalletActiveForUser,
 };

@@ -15,6 +15,7 @@ interface ICustomSelectProps {
     options: ICustomSelectOption[];
     placeholder?: string;
     disabled?: boolean;
+    dropdownZIndex?: number;
 }
 
 export function CustomSelect({
@@ -23,6 +24,7 @@ export function CustomSelect({
     options,
     placeholder = 'Chọn...',
     disabled = false,
+    dropdownZIndex = 1200,
 }: ICustomSelectProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
@@ -149,7 +151,7 @@ export function CustomSelect({
                               background: 'var(--surface-strong)',
                               boxShadow: '0 14px 40px rgba(0,0,0,0.32)',
                               overflow: 'hidden',
-                              zIndex: 1200,
+                              zIndex: dropdownZIndex,
                               maxHeight: 220,
                               overflowY: 'auto',
                           }}

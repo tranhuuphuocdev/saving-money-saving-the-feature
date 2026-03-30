@@ -8,6 +8,7 @@ interface ICustomDatePickerProps {
     value: string;
     onChange: (value: string) => void;
     placeholder?: string;
+    zIndex?: number;
 }
 
 const WEEKDAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
@@ -50,7 +51,7 @@ function buildCalendarGrid(viewMonth: Date): Date[] {
     });
 }
 
-export function CustomDatePicker({ value, onChange, placeholder = 'Chọn ngày' }: ICustomDatePickerProps) {
+export function CustomDatePicker({ value, onChange, placeholder = 'Chọn ngày', zIndex = 190 }: ICustomDatePickerProps) {
     const [isOpen, setIsOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement | null>(null);
     const panelRef = useRef<HTMLDivElement | null>(null);
@@ -134,7 +135,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Chọn ngày'
                           style={{
                               position: 'fixed',
                               inset: 0,
-                              zIndex: 190,
+                              zIndex: zIndex,
                               display: 'grid',
                               placeItems: 'center',
                               padding: 12,
@@ -167,7 +168,7 @@ export function CustomDatePicker({ value, onChange, placeholder = 'Chọn ngày'
                                   gap: 8,
                                   overflowY: 'auto',
                                   position: 'relative',
-                                  zIndex: 191,
+                                  zIndex: zIndex + 1,
                               }}
                           >
                               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 8 }}>

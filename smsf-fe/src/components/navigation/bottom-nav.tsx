@@ -14,7 +14,7 @@ const navItems = [
     { key: 'transactions', label: 'Giao dịch', icon: ReceiptText },
     { key: 'dashboard', label: 'Tổng quan', icon: ChartNoAxesColumn },
     { key: 'calendar', label: 'Lịch', icon: Calendar },
-    { key: 'chat', label: 'Nhắn tin', icon: MessageCircle },
+    { key: 'chat', label: 'Pô con', icon: MessageCircle },
 ] as const;
 
 export function BottomNav({ activeTab, onSelect }: IBottomNavProps) {

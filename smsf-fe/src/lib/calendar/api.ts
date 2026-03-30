@@ -83,6 +83,14 @@ export async function createWalletRequest(
     return response.data.data;
 }
 
+export async function updateWalletActiveRequest(
+    walletId: string,
+    isActive: boolean,
+): Promise<IWalletItem> {
+    const response = await api.patch<IApiResponse<IWalletItem>>(`/wallets/${walletId}`, { isActive });
+    return response.data.data;
+}
+
 export async function getTransactionsByMonthRequest(
     month: number,
     year: number,

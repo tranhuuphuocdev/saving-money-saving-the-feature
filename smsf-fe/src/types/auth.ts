@@ -21,6 +21,7 @@ export interface IAuthContextValue {
     logout: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     refreshWallets: () => Promise<void>;
+    updateWalletActive: (walletId: string, isActive: boolean) => Promise<void>;
 }
 
 export interface ILoginResponse {

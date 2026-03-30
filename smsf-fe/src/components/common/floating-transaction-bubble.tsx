@@ -87,11 +87,12 @@ export function FloatingTransactionBubble() {
         Promise.all([getWalletsRequest(), getCategoriesRequest()]).then(([walletSummary, fetchedCats]) => {
             if (ignore) return;
             const fetchedWallets = walletSummary.wallets;
-            setWallets(fetchedWallets);
+            const activeWallets = fetchedWallets.filter((w) => w.isActive !== false);
+            setWallets(activeWallets);
             setLocalCategories(fetchedCats);
 
-            if (fetchedWallets.length > 0) {
-                const richest = fetchedWallets.reduce((a: IWalletItem, b: IWalletItem) => (b.balance > a.balance ? b : a));
+            if (activeWallets.length > 0) {
+                const richest = activeWallets.reduce((a: IWalletItem, b: IWalletItem) => (b.balance > a.balance ? b : a));
                 setWalletId(richest.id);
             }
             const defaultCat = fetchedCats.find((c) => c.type === 'expense') ?? fetchedCats[0];

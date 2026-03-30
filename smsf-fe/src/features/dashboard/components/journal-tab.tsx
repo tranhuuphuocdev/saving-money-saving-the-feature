@@ -4,6 +4,7 @@ import { BarChart3, Check, ImagePlus, LoaderCircle, MessageCircle, Mic, Pencil, 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
+import { CustomDatePicker } from '@/components/common/custom-date-picker';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import {
@@ -277,8 +278,9 @@ export function ChatTab() {
                 setWallets(walletSummary.wallets);
                 setCategories(fetchedCategories);
 
-                if (walletSummary.wallets.length > 0) {
-                    const richest = walletSummary.wallets.reduce((a, b) =>
+                const activeWallets = walletSummary.wallets.filter((w) => w.isActive !== false);
+                if (activeWallets.length > 0) {
+                    const richest = activeWallets.reduce((a, b) =>
                         b.balance > a.balance ? b : a,
                     );
                     setSelectedWalletId(richest.id);
@@ -477,7 +479,7 @@ export function ChatTab() {
 
     const walletOptions = useMemo(
         () =>
-            wallets.map((wallet) => ({
+            wallets.filter((wallet) => wallet.isActive !== false).map((wallet) => ({
                 value: wallet.id,
                 label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
             })),
@@ -1419,7 +1421,7 @@ export function ChatTab() {
                         <div>
                             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Số tiền</div>
                             <input
-                                value={editingDraft.amount}
+                                value={editingDraft.amount ? new Intl.NumberFormat('vi-VN').format(Number(editingDraft.amount) || 0) : ''}
                                 onChange={(event) => {
                                     const value = event.target.value.replace(/\D/g, '');
                                     updateMessageDraft(editingMessageId, (current) => ({ ...current, amount: value }));
@@ -1438,25 +1440,17 @@ export function ChatTab() {
                         </div>
                         <div>
                             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Ngày</div>
-                            <input
-                                type="date"
+                            <CustomDatePicker
                                 value={formatDateInput(editingDraft.timestamp)}
-                                onChange={(event) => {
-                                    updateMessageDraft(editingMessageId, (current) => ({
-                                        ...current,
-                                        timestamp: parseDateInputToTimestamp(event.target.value),
-                                    }));
+                                onChange={(val) => {
+                                    if (val) {
+                                        updateMessageDraft(editingMessageId, (current) => ({
+                                            ...current,
+                                            timestamp: parseDateInputToTimestamp(val),
+                                        }));
+                                    }
                                 }}
-                                style={{
-                                    width: '100%',
-                                    borderRadius: 10,
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'var(--surface-soft)',
-                                    color: 'var(--foreground)',
-                                    padding: '9px 10px',
-                                    fontSize: 12.5,
-                                    boxSizing: 'border-box',
-                                }}
+                                zIndex={1400}
                             />
                         </div>
                     </div>
@@ -1467,6 +1461,7 @@ export function ChatTab() {
                             value={editingDraft.walletId}
                             onChange={(value) => updateMessageDraft(editingMessageId, (current) => ({ ...current, walletId: value }))}
                             options={walletOptions}
+                            dropdownZIndex={1400}
                         />
                     </div>
 
@@ -1476,6 +1471,7 @@ export function ChatTab() {
                             value={editingDraft.categoryId}
                             onChange={(value) => updateMessageDraft(editingMessageId, (current) => ({ ...current, categoryId: value }))}
                             options={categoryOptions}
+                            dropdownZIndex={1400}
                         />
                     </div>
 
@@ -1939,20 +1935,6 @@ export function ChatTab() {
             <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: 10, display: 'grid', gap: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <div style={{ fontSize: 12.2, fontWeight: 800 }}>5 giao dịch gần đây</div>
-                    <button
-                        type="button"
-                        onClick={() => void loadRecentTransactions()}
-                        style={{
-                            border: '1px solid var(--surface-border)',
-                            background: 'var(--surface-soft)',
-                            color: 'var(--foreground)',
-                            borderRadius: 8,
-                            padding: '5px 8px',
-                            fontSize: 10.8,
-                        }}
-                    >
-                        Làm mới
-                    </button>
                 </div>
                 <div style={{ display: 'grid', gap: 6 }}>
                     {isRecentLoading ? (

@@ -2,7 +2,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest } from '@/lib/auth/api';
-import { createWalletRequest, getWalletsRequest } from '@/lib/calendar/api';
+import { createWalletRequest, getWalletsRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
 import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
@@ -95,6 +95,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
+    const updateWalletActive = useCallback(async (walletId: string, isActive: boolean) => {
+        await updateWalletActiveRequest(walletId, isActive);
+        await refreshWalletsSafely();
+    }, [refreshWalletsSafely]);
+
     const logout = useCallback(async () => {
         await logoutRequest();
         setUser(null);
@@ -116,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             logout,
             refreshProfile,
             refreshWallets,
+                updateWalletActive,
         }),
         [
             isLoading,
@@ -129,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             totalWalletBalance,
             user,
             wallets,
+                updateWalletActive,
         ],
     );
 

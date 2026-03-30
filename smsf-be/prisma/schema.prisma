@@ -53,6 +53,7 @@ model Wallet {
   amount    Decimal  @default(0) @db.Decimal(18, 2)
   createdAt BigInt   @map("created_at")
   updatedAt BigInt   @map("updated_at")
+  isActive  Boolean  @default(true) @map("is_active")
 
   user         User          @relation(fields: [userId], references: [id])
   transactions Transaction[]

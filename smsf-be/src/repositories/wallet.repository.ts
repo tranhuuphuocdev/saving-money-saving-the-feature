@@ -11,6 +11,7 @@ const mapRow = (row: {
     amount: unknown;
     createdAt: bigint;
     updatedAt: bigint;
+    isActive?: boolean;
 }): IWallet => {
     return {
         id: String(row.id),
@@ -20,6 +21,7 @@ const mapRow = (row: {
         balance: Number(row.amount || 0),
         createdAt: Number(row.createdAt || 0n),
         updatedAt: Number(row.updatedAt || 0n),
+        isActive: row.isActive !== false,
     };
 };
 
@@ -39,12 +41,14 @@ const upsertWallet = async (
             amount: wallet.balance,
             createdAt: BigInt(wallet.createdAt),
             updatedAt: BigInt(wallet.updatedAt),
+                isActive: wallet.isActive !== false,
         },
         update: {
             name: wallet.name,
             type: wallet.type,
             amount: wallet.balance,
             updatedAt: BigInt(wallet.updatedAt),
+                isActive: wallet.isActive !== false,
         },
     });
 
@@ -140,11 +144,32 @@ const updateWalletBalance = async (
     return updatedWallet;
 };
 
+const setWalletActive = async (
+    userId: string,
+    walletId: string,
+    isActive: boolean,
+): Promise<IWallet | undefined> => {
+    const wallet = await getWalletById(userId, walletId);
+    if (!wallet) {
+        return undefined;
+    }
+
+    const updatedWallet: IWallet = {
+        ...wallet,
+        isActive,
+        updatedAt: Date.now(),
+    };
+
+    await upsertWallet(updatedWallet);
+    return updatedWallet;
+};
+
 export {
     getWalletsByUserId,
     getWalletById,
     findWalletByUserAndName,
     updateWalletBalance,
+    setWalletActive,
     upsertWallet,
     upsertWalletsBulk,
     getWalletSummaryByUserId,
