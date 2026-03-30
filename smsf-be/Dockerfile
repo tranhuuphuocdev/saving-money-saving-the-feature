@@ -12,7 +12,6 @@ COPY src ./src
 RUN npx prisma generate
 
 RUN npm run build
-RUN npm prune --omit=dev
 
 FROM node:24-alpine AS runner
 
@@ -24,9 +23,10 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
 
 USER node
 
 EXPOSE 3000
 
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
