@@ -1,9 +1,11 @@
 import { CookieOptions, Request, Response } from "express";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
+import { OAuth2Client } from "google-auth-library";
 import jwt, { SignOptions } from "jsonwebtoken";
 import config from "../config";
 import {
+    IGoogleLoginPayload,
     IJwtAuthPayload,
     ILoginPayload,
     IRegisterPayload,
@@ -17,12 +19,16 @@ import {
     storeRefreshToken,
 } from "../lib/auth-token-store";
 import { prisma } from "../lib/prisma";
+import { ensureDefaultCategoriesForUser } from "../services/category.service";
 import { listWalletsByUserId } from "../services/wallet.service";
 
 type IUserSource = {
     uId: string;
     dn?: string;
     username: string;
+    email?: string;
+    authProvider?: "local" | "google";
+    googleSub?: string;
     password: string;
     role: IUser["role"];
     teleChatId?: string;
@@ -53,6 +59,12 @@ const mapUserRow = (row: Record<string, unknown>): IUser => {
     };
 };
 
+const googleClient = new OAuth2Client();
+
+const normalizeEmail = (value: unknown): string => {
+    return String(value || "").trim().toLowerCase();
+};
+
 const findUserByCredentials = async (
     username: string,
     password: string,
@@ -79,12 +91,101 @@ const findUserByUsername = async (username: string): Promise<IUser | undefined> 
     return result ? mapUserRow(result as unknown as Record<string, unknown>) : undefined;
 };
 
+const findGoogleUserBySub = async (googleSub: string): Promise<IUser | undefined> => {
+    const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+            u_id AS id,
+            dn AS "displayName",
+            username,
+            password,
+            role,
+            tele_chat_id AS "telegramChat"
+        FROM users
+        WHERE is_deleted = false
+          AND google_sub = ${googleSub}
+        ORDER BY updated_at DESC
+        LIMIT 1
+    `;
+
+    return rows[0] ? mapUserRow(rows[0]) : undefined;
+};
+
+const findGoogleUserByEmail = async (email: string): Promise<IUser | undefined> => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+        return undefined;
+    }
+
+    const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+            u_id AS id,
+            dn AS "displayName",
+            username,
+            password,
+            role,
+            tele_chat_id AS "telegramChat"
+        FROM users
+        WHERE is_deleted = false
+          AND auth_provider = 'google'
+          AND LOWER(COALESCE(email, '')) = ${normalizedEmail}
+        ORDER BY updated_at DESC
+        LIMIT 1
+    `;
+
+    return rows[0] ? mapUserRow(rows[0]) : undefined;
+};
+
+const hasConflictingLocalUserForGoogleEmail = async (email: string): Promise<boolean> => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+        return false;
+    }
+
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT u_id AS id
+        FROM users
+        WHERE is_deleted = false
+          AND COALESCE(auth_provider, 'local') <> 'google'
+          AND (
+              LOWER(username) = ${normalizedEmail}
+              OR LOWER(COALESCE(email, '')) = ${normalizedEmail}
+          )
+        ORDER BY updated_at DESC
+        LIMIT 1
+    `;
+
+    return rows.length > 0;
+};
+
 const usernameExists = async (username: string): Promise<boolean> => {
     const count = await prisma.user.count({
         where: { username },
     });
 
     return count > 0;
+};
+
+const buildUniqueUsernameFromEmail = async (email: string): Promise<string> => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+        return `google-${randomUUID().slice(0, 8)}`;
+    }
+
+    if (!(await usernameExists(normalizedEmail))) {
+        return normalizedEmail;
+    }
+
+    const [localPartRaw] = normalizedEmail.split("@");
+    const localPart = String(localPartRaw || "google").replace(/[^a-z0-9._-]/gi, "-") || "google";
+
+    for (let index = 1; index <= 999; index += 1) {
+        const candidate = `${localPart}-${index}`;
+        if (!(await usernameExists(candidate))) {
+            return candidate;
+        }
+    }
+
+    return `${localPart}-${Date.now()}`;
 };
 
 const hashPassword = (rawPassword: string): string => {
@@ -108,6 +209,9 @@ const createUserDocument = async (payload: IUserSource): Promise<void> => {
             u_id,
             dn,
             username,
+            email,
+            auth_provider,
+            google_sub,
             tele_chat_id,
             password,
             role,
@@ -118,6 +222,9 @@ const createUserDocument = async (payload: IUserSource): Promise<void> => {
             ${payload.uId}::uuid,
             ${payload.dn || payload.username},
             ${payload.username},
+            ${payload.email || null},
+            ${payload.authProvider || "local"},
+            ${payload.googleSub || null},
             ${payload.teleChatId || null},
             ${payload.password},
             ${payload.role},
@@ -126,6 +233,36 @@ const createUserDocument = async (payload: IUserSource): Promise<void> => {
             ${payload.isDeleted ?? false}
         )
     `;
+};
+
+const syncGoogleIdentityForUser = async (
+    userId: string,
+    payload: {
+        email: string;
+        googleSub: string;
+        displayName?: string;
+    },
+): Promise<IUser | undefined> => {
+    const normalizedEmail = normalizeEmail(payload.email);
+    const normalizedGoogleSub = String(payload.googleSub || "").trim();
+    const normalizedDisplayName = String(payload.displayName || "").trim();
+
+    if (!userId || !normalizedEmail || !normalizedGoogleSub) {
+        return undefined;
+    }
+
+    await prisma.$executeRaw`
+        UPDATE users
+        SET
+            email = ${normalizedEmail},
+            auth_provider = 'google',
+            google_sub = ${normalizedGoogleSub},
+            dn = COALESCE(${normalizedDisplayName || null}, dn, username),
+            updated_at = ${BigInt(Date.now())}
+        WHERE u_id = ${userId}::uuid
+    `;
+
+    return findUserById(userId);
 };
 
 const updateUserTelegramChatId = async (
@@ -272,6 +409,14 @@ const clearAuthCookies = (res: Response): void => {
     );
 };
 
+const loginAndAttachAuthCookies = (res: Response, user: IUser): void => {
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    storeRefreshToken(refreshToken, user.id);
+    setAuthCookies(res, { accessToken, refreshToken });
+};
+
 /**
  * Login - validate credentials & return JWT
  */
@@ -296,11 +441,7 @@ const login = async (req: Request, res: Response): Promise<Response | void> => {
             });
         }
 
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken(user);
-
-        storeRefreshToken(refreshToken, user.id);
-        setAuthCookies(res, { accessToken, refreshToken });
+        loginAndAttachAuthCookies(res, user);
 
         return res.json({
             success: true,
@@ -374,13 +515,11 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
         };
 
         await createUserDocument(newUser);
+        await ensureDefaultCategoriesForUser(newUser.uId);
         await listWalletsByUserId(newUser.uId);
 
         const user: IUser = mapUserSource(newUser);
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken(user);
-        storeRefreshToken(refreshToken, user.id);
-        setAuthCookies(res, { accessToken, refreshToken });
+        loginAndAttachAuthCookies(res, user);
 
         return res.status(201).json({
             success: true,
@@ -407,6 +546,119 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
                 config.nodeEnv === "production"
                     ? "Register failed."
                     : `Register failed: ${detailedMessage}`,
+        });
+    }
+};
+
+const loginWithGoogle = async (req: Request, res: Response): Promise<Response | void> => {
+    try {
+        const { credential } = req.body as IGoogleLoginPayload;
+        const safeCredential = String(credential || "").trim();
+
+        if (!safeCredential) {
+            return res.status(400).json({
+                success: false,
+                message: "Google credential is required.",
+            });
+        }
+
+        if (config.googleAuth.clientIds.length === 0) {
+            return res.status(503).json({
+                success: false,
+                message: "Google login is not configured on server.",
+            });
+        }
+
+        const ticket = await googleClient.verifyIdToken({
+            idToken: safeCredential,
+            audience: config.googleAuth.clientIds,
+        });
+
+        const payload = ticket.getPayload();
+        const googleSub = String(payload?.sub || "").trim();
+        const email = normalizeEmail(payload?.email);
+        const emailVerified = Boolean(payload?.email_verified);
+        const displayName = String(payload?.name || email.split("@")[0] || "Google User").trim();
+
+        if (!googleSub || !email || !emailVerified) {
+            return res.status(401).json({
+                success: false,
+                message: "Google account email is not verified.",
+            });
+        }
+
+        let user = await findGoogleUserBySub(googleSub);
+
+        if (!user) {
+            user = await findGoogleUserByEmail(email);
+        }
+
+        if (!user) {
+            const hasConflict = await hasConflictingLocalUserForGoogleEmail(email);
+            if (hasConflict) {
+                return res.status(409).json({
+                    success: false,
+                    message: "This Google email is already used by a password-based account. Sign in with password first or add an account-linking flow.",
+                });
+            }
+
+            const now = Date.now();
+            const uniqueUsername = await buildUniqueUsernameFromEmail(email);
+            const newUser: IUserSource = {
+                uId: randomUUID(),
+                dn: displayName,
+                username: uniqueUsername,
+                email,
+                authProvider: "google",
+                googleSub,
+                password: hashPassword(randomUUID()),
+                role: "user",
+                teleChatId: undefined,
+                createdAt: now,
+                updatedAt: now,
+                isDeleted: false,
+            };
+
+            await createUserDocument(newUser);
+            await ensureDefaultCategoriesForUser(newUser.uId);
+            await listWalletsByUserId(newUser.uId);
+            user = mapUserSource(newUser);
+        } else {
+            const syncedUser = await syncGoogleIdentityForUser(user.id, {
+                email,
+                googleSub,
+                displayName,
+            });
+
+            if (syncedUser) {
+                user = syncedUser;
+            }
+        }
+
+        loginAndAttachAuthCookies(res, user);
+
+        return res.json({
+            success: true,
+            message: "Google login successful.",
+            data: {
+                user: {
+                    id: user.id,
+                    displayName: user.displayName,
+                    username: user.username,
+                    role: user.role,
+                    telegramChatId: user.telegramChatId,
+                },
+            },
+        });
+    } catch (error) {
+        const statusCode = (error as Error & { statusCode?: number }).statusCode || 401;
+
+        return res.status(statusCode).json({
+            success: false,
+            message:
+                statusCode >= 500
+                    ? "Google authentication failed."
+                    : (error as Error).message || "Google authentication failed.",
         });
     }
 };
@@ -597,5 +849,5 @@ const updateProfile = async (req: Request, res: Response): Promise<Response> => 
     }
 };
 
-export { login, register, getProfile, updateProfile };
+export { login, loginWithGoogle, register, getProfile, updateProfile };
 export { refreshToken, logout };

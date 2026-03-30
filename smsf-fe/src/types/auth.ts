@@ -15,6 +15,7 @@ export interface IAuthContextValue {
     totalWalletBalance: number;
     wallets: IWalletItem[];
     login: (username: string, password: string) => Promise<void>;
+    loginWithGoogle: (credential: string) => Promise<void>;
     register: (username: string, password: string, telegramChatId?: string) => Promise<void>;
     createWallet: (payload: { name: string; type?: string; balance?: number }) => Promise<void>;
     updateTelegramChatId: (telegramChatId?: string, displayName?: string) => Promise<void>;

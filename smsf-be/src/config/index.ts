@@ -1,9 +1,18 @@
 import dotenv from "dotenv";
+import path from "node:path";
 
-dotenv.config();
+const ENV_PATH = path.resolve(__dirname, "../../.env");
+dotenv.config({ path: ENV_PATH, override: true });
 
 const parseAllowedOrigins = (): string[] => {
     return String(process.env.CORS_ALLOWED_ORIGINS || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+};
+
+const parseGoogleClientIds = (): string[] => {
+    return String(process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || "")
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
@@ -54,6 +63,9 @@ const config = {
         apiKey: process.env.GEMINI_API_KEY || "",
         model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
         timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 15000,
+    },
+    googleAuth: {
+        clientIds: parseGoogleClientIds(),
     },
     tracing: {
         enabled: process.env.TRACING_ENABLED !== "false",

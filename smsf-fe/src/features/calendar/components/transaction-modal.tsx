@@ -3,9 +3,10 @@
 import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
-import { createCategoryRequest } from '@/lib/calendar/api';
+import { createCategoryRequest, getCategoriesRequest, updateCategoryOrderRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND, formatTimeLabel, formatTransactionTypeLabel } from '@/lib/formatters';
 import {
     ICalendarTransaction,
@@ -82,6 +83,8 @@ export function TransactionModal({
     const [newCategoryName, setNewCategoryName] = useState('');
     const [newCategoryIcon, setNewCategoryIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
     const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+    const [isCategoryOrderOpen, setIsCategoryOrderOpen] = useState(false);
+    const [isSavingCategoryOrder, setIsSavingCategoryOrder] = useState(false);
     // Tracks when modal was opened to ignore ghost clicks (300ms delay) on mobile browsers
     const openedAtRef = useRef<number>(0);
 
@@ -129,7 +132,9 @@ export function TransactionModal({
             {
                 id: OTHER_CATEGORY_ID,
                 name: 'Mục khác',
+                icon: '➕',
                 type,
+                orderIndex: 9999,
                 isDefault: false,
             },
         ];
@@ -246,7 +251,7 @@ export function TransactionModal({
                     return prev;
                 }
 
-                return [created, ...prev];
+                return [...prev, created];
             });
 
             setCategoryId(created.id);
@@ -260,6 +265,26 @@ export function TransactionModal({
             );
         } finally {
             setIsCreatingCategory(false);
+        }
+    };
+
+    const handleSaveCategoryOrder = async (categoryIds: string[]) => {
+        setIsSavingCategoryOrder(true);
+        try {
+            await updateCategoryOrderRequest({
+                type,
+                categoryIds,
+            });
+            const refreshed = await getCategoriesRequest();
+            setLocalCategories(refreshed);
+            setIsCategoryOrderOpen(false);
+        } catch (error) {
+            setErrorMessage(
+                (error as { response?: { data?: { message?: string } } })?.response?.data
+                    ?.message || 'Cập nhật thứ tự danh mục thất bại.',
+            );
+        } finally {
+            setIsSavingCategoryOrder(false);
         }
     };
 
@@ -541,8 +566,23 @@ export function TransactionModal({
                             </div>
 
                             <div style={{ display: 'grid', gap: 8 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
-                                    Chọn danh mục
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span>Chọn danh mục</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCategoryOrderOpen(true)}
+                                        style={{
+                                            border: 'none',
+                                            background: 'transparent',
+                                            color: 'var(--accent)',
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            padding: 0,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Sắp xếp danh mục
+                                    </button>
                                 </div>
                                 <div
                                     style={{
@@ -872,6 +912,15 @@ export function TransactionModal({
                     </div>
                 </div>
             )}
+
+            <CategoryOrderModal
+                isOpen={isCategoryOrderOpen}
+                type={type}
+                categories={localCategories}
+                isSaving={isSavingCategoryOrder}
+                onClose={() => setIsCategoryOrderOpen(false)}
+                onSave={handleSaveCategoryOrder}
+            />
 
             {isCreateCategoryOpen ? (
                 <div

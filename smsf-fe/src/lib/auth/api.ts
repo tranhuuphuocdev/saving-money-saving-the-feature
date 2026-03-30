@@ -33,7 +33,7 @@ api.interceptors.response.use(
     async (error: AxiosError) => {
         const originalRequest = error.config as typeof error.config & { _retry?: boolean };
         const requestPath = originalRequest?.url || '';
-        const shouldSkipRefresh = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout'].some((path) =>
+        const shouldSkipRefresh = ['/auth/login', '/auth/google', '/auth/register', '/auth/refresh', '/auth/logout'].some((path) =>
             requestPath.includes(path),
         );
 
@@ -54,6 +54,15 @@ export async function loginRequest(username: string, password: string): Promise<
     const response = await api.post<ILoginResponse>('/auth/login', {
         username,
         password,
+    });
+    const payload = response.data.data;
+    setSession(payload.user);
+    return payload;
+}
+
+export async function loginWithGoogleRequest(credential: string): Promise<ILoginResponse['data']> {
+    const response = await api.post<ILoginResponse>('/auth/google', {
+        credential,
     });
     const payload = response.data.data;
     setSession(payload.user);

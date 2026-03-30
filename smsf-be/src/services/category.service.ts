@@ -1,15 +1,37 @@
+import { DEFAULT_CATEGORIES } from "../constants/default-categories";
 import { ICategory, TypeCategoryKind } from "../interfaces/category.interface";
 import {
     createCategoryForUser,
     findCategoryByIdForUser,
     findCategoryByUserAndName,
+    getMaxOrderIndexByUserAndType,
     listCategoriesByUser,
+    reorderCategoriesByUser,
 } from "../repositories/category.repository";
 
-const getCategoriesByUser = (
+const ensureDefaultCategoriesForUser = async (userId: string): Promise<void> => {
+    const existing = await listCategoriesByUser(userId);
+    if (existing.length > 0) {
+        return;
+    }
+
+    for (const category of DEFAULT_CATEGORIES) {
+        await createCategoryForUser(
+            userId,
+            category.name,
+            category.type,
+            category.icon,
+            category.index,
+            true,
+        );
+    }
+};
+
+const getCategoriesByUser = async (
     userId: string,
     type?: TypeCategoryKind,
 ): Promise<ICategory[]> => {
+    await ensureDefaultCategoriesForUser(userId);
     return listCategoriesByUser(userId, type);
 };
 
@@ -52,7 +74,8 @@ const createCustomCategoryForUser = async (
         return existing;
     }
 
-    return createCategoryForUser(userId, normalizedName, type, icon);
+    const currentMax = await getMaxOrderIndexByUserAndType(userId, type);
+    return createCategoryForUser(userId, normalizedName, type, icon, currentMax + 1, false);
 };
 
 const getCategoryById = async (userId: string, categoryId: string): Promise<ICategory | undefined> => {
@@ -63,9 +86,40 @@ const getCategoryById = async (userId: string, categoryId: string): Promise<ICat
     return findCategoryByIdForUser(userId, categoryId);
 };
 
+const updateCategoryOrderByUser = async (
+    userId: string,
+    type: TypeCategoryKind,
+    categoryIds: string[],
+): Promise<void> => {
+    const existing = await listCategoriesByUser(userId, type);
+    if (existing.length === 0) {
+        return;
+    }
+
+    const existingIdSet = new Set(existing.map((item) => item.id));
+    if (categoryIds.some((id) => !existingIdSet.has(id))) {
+        const error = new Error("category ids contain invalid item.");
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+    }
+
+    const missingIds = existing.filter((item) => !categoryIds.includes(item.id)).map((item) => item.id);
+    const normalizedIds = [...categoryIds, ...missingIds];
+
+    await reorderCategoriesByUser(
+        userId,
+        normalizedIds.map((id, index) => ({
+            id,
+            orderIndex: index,
+        })),
+    );
+};
+
 export {
     getCategoriesByUser,
     ensureCategoryByName,
     getCategoryById,
     createCustomCategoryForUser,
+    ensureDefaultCategoriesForUser,
+    updateCategoryOrderByUser,
 };

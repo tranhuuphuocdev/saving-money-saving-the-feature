@@ -7,8 +7,6 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
-    "seed:categories": "ts-node src/scripts/create-categories.ts",
-    "seed:wallets": "ts-node src/scripts/create-wallets.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -30,6 +28,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.1.0",
+    "google-auth-library": "^10.6.2",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "lodash": "^4.17.23",

@@ -73,6 +73,7 @@ export interface ICategoryItem {
     name: string;
     icon?: string;
     type: TypeCategoryKind;
+    orderIndex: number;
     isDefault: boolean;
 }
 

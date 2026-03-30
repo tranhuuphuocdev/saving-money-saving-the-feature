@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import {
 	getProfile,
 	login,
+	loginWithGoogle,
 	logout,
 	register,
 	refreshToken,
@@ -25,6 +26,7 @@ const authLimiter = rateLimit({
 
 // Public routes
 router.post("/login", authLimiter, login);
+router.post("/google", authLimiter, loginWithGoogle);
 router.post("/register", authLimiter, register);
 router.post("/refresh", authLimiter, refreshToken);
 

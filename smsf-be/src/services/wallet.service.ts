@@ -1,6 +1,6 @@
 import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
 import { randomUUID } from "node:crypto";
-import { DbExecutor } from "../lib/prisma";
+import { DbExecutor, prisma } from "../lib/prisma";
 import {
     findWalletByUserAndName,
     getWalletById,
@@ -52,6 +52,18 @@ const listWalletsByUserId = async (userId: string): Promise<IWallet[]> => {
     const wallets = await getWalletsByUserId(userId);
     if (wallets.length > 0) {
         return wallets;
+    }
+
+    // Check if user exists before creating default wallets
+    const userExists = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+    });
+
+    if (!userExists) {
+        const error = new Error("User not found.");
+        (error as Error & { statusCode?: number }).statusCode = 404;
+        throw error;
     }
 
     const defaults = buildDefaultWallets(userId);

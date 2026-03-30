@@ -51,6 +51,7 @@ interface ICategoryApiItem {
     name: string;
     icon?: string;
     type: 'income' | 'expense';
+    orderIndex?: number;
     isDefault: boolean;
 }
 
@@ -142,6 +143,23 @@ export async function getCategoriesRequest(
         name: item.name,
         icon: item.icon,
         type: item.type,
+        orderIndex: Number(item.orderIndex || 0),
+        isDefault: item.isDefault,
+    }));
+}
+
+export async function updateCategoryOrderRequest(payload: {
+    type: 'income' | 'expense';
+    categoryIds: string[];
+}): Promise<ICategoryItem[]> {
+    const response = await api.put<IApiResponse<ICategoryApiItem[]>>('/categories/order', payload);
+
+    return response.data.data.map((item) => ({
+        id: item.id,
+        name: item.name,
+        icon: item.icon,
+        type: item.type,
+        orderIndex: Number(item.orderIndex || 0),
         isDefault: item.isDefault,
     }));
 }
@@ -159,6 +177,7 @@ export async function createCategoryRequest(payload: {
         name: item.name,
         icon: item.icon,
         type: item.type,
+        orderIndex: Number(item.orderIndex || 0),
         isDefault: item.isDefault,
     };
 }

@@ -1,5 +1,4 @@
 import pool from "../lib/db";
-import { createCategories } from "./create-categories";
 
 const TABLES = [
     "notifications",
@@ -19,10 +18,6 @@ async function truncateDb(): Promise<void> {
     }
 
     console.log("[truncate-db] all tables truncated.");
-    console.log("[truncate-db] re-seeding default categories...");
-
-    await createCategories();
-
     console.log("[truncate-db] done.");
     await pool.end();
 }

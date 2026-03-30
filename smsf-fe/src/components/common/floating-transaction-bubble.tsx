@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, X } from 'lucide-react';
+import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import { formatCurrencyVND } from '@/lib/formatters';
@@ -11,6 +12,7 @@ import {
     createTransactionRequest,
     getCategoriesRequest,
     getWalletsRequest,
+    updateCategoryOrderRequest,
 } from '@/lib/calendar/api';
 import { ICategoryItem, IWalletItem } from '@/types/calendar';
 
@@ -67,6 +69,8 @@ export function FloatingTransactionBubble() {
     const [newCatName, setNewCatName] = useState('');
     const [newCatIcon, setNewCatIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
     const [isCreatingCat, setIsCreatingCat] = useState(false);
+    const [isCategoryOrderOpen, setIsCategoryOrderOpen] = useState(false);
+    const [isSavingCategoryOrder, setIsSavingCategoryOrder] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
@@ -264,7 +268,7 @@ export function FloatingTransactionBubble() {
         setIsCreatingCat(true);
         try {
             const created = await createCategoryRequest({ name: safeName, type, icon: newCatIcon });
-            setLocalCategories((prev) => prev.find((c) => c.id === created.id) ? prev : [created, ...prev]);
+            setLocalCategories((prev) => prev.find((c) => c.id === created.id) ? prev : [...prev, created]);
             setCategoryId(created.id);
             setIsCreateCatOpen(false);
             setNewCatName('');
@@ -277,6 +281,25 @@ export function FloatingTransactionBubble() {
             setIsCreatingCat(false);
         }
     }, [newCatName, type, newCatIcon]);
+
+    const handleSaveCategoryOrder = useCallback(async (categoryIds: string[]) => {
+        setIsSavingCategoryOrder(true);
+        try {
+            await updateCategoryOrderRequest({
+                type,
+                categoryIds,
+            });
+            const refreshed = await getCategoriesRequest();
+            setLocalCategories(refreshed);
+            setIsCategoryOrderOpen(false);
+        } catch (error) {
+            setErrorMessage(
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Cập nhật danh mục thất bại.',
+            );
+        } finally {
+            setIsSavingCategoryOrder(false);
+        }
+    }, [type]);
 
     if (!isMounted || !pos) return null;
 
@@ -520,7 +543,24 @@ export function FloatingTransactionBubble() {
 
                             {/* ── Category grid ── */}
                             <div>
-                                <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>Danh mục</div>
+                                <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span>Danh mục</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCategoryOrderOpen(true)}
+                                        style={{
+                                            border: 'none',
+                                            background: 'transparent',
+                                            color: 'var(--accent)',
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            padding: 0,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Sắp xếp danh mục
+                                    </button>
+                                </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
                                     {categoryOptions.map((cat) => {
                                         const isOther = cat.id === OTHER_CATEGORY_ID;
@@ -640,6 +680,15 @@ export function FloatingTransactionBubble() {
             )}
 
             {/* ── Create category sub-modal ── */}
+            <CategoryOrderModal
+                isOpen={isCategoryOrderOpen}
+                type={type}
+                categories={localCategories}
+                isSaving={isSavingCategoryOrder}
+                onClose={() => setIsCategoryOrderOpen(false)}
+                onSave={handleSaveCategoryOrder}
+            />
+
             {isCreateCatOpen && (
                 <div style={{
                     position: 'fixed',

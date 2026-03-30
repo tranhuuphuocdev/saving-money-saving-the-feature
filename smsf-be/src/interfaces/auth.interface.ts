@@ -21,6 +21,10 @@ export interface ILoginPayload {
     password?: string;
 }
 
+export interface IGoogleLoginPayload {
+    credential?: string;
+}
+
 export interface IRefreshTokenPayloadRequest {
     refreshToken?: string;
 }

@@ -1,9 +1,10 @@
 'use client';
 
 import { BarChart3, Check, ImagePlus, LoaderCircle, MessageCircle, Mic, Pencil, Send, Square, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
+import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomDatePicker } from '@/components/common/custom-date-picker';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
@@ -12,9 +13,12 @@ import {
     analyzeSmartReceiptRequest,
     analyzeSmartTextMultiRequest,
     createTransactionRequest,
+    deleteTransactionRequest,
     getCategoriesRequest,
     getRecentTransactionsRequest,
     getWalletsRequest,
+    updateCategoryOrderRequest,
+    updateTransactionRequest,
 } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { useAuth } from '@/providers/auth-provider';
@@ -119,6 +123,17 @@ const truncateText = (value: string | undefined, maxLength = 34): string => {
     if (text.length <= maxLength) return text;
     return `${text.slice(0, maxLength).trimEnd()}...`;
 };
+
+const CHAT_ACTION_SIDE_PADDING = 6;
+const CHAT_ACTION_BUTTON_WIDTH = 34;
+const CHAT_ACTION_GAP = 6;
+const CHAT_ACTION_TRAILING_PADDING = 6;
+const CHAT_SWIPE_SNAP_TO_EDIT =
+    CHAT_ACTION_SIDE_PADDING
+    + CHAT_ACTION_BUTTON_WIDTH
+    + CHAT_ACTION_GAP
+    + CHAT_ACTION_BUTTON_WIDTH
+    + CHAT_ACTION_TRAILING_PADDING;
 
 const TRANSACTION_INTENT_PATTERN = /(\d|k\b|tr\b|triệu|nghìn|ngan|đ\b|vnd|chi|thu|mua|trả|lương|xăng|đi chợ|hoa don|hoá đơn|bill)/i;
 const ANALYSIS_INTENT_PATTERN = /(phân tích|phan tich|phân thích|phan thich|nhận định|nhan dinh|liệt kê|liet ke|bất thường|bat thuong|chi tiêu|chi tieu)/i;
@@ -259,7 +274,22 @@ export function ChatTab() {
     const [voiceLevel, setVoiceLevel] = useState(0);
     const [isRecentLoading, setIsRecentLoading] = useState(false);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+    const [isCategoryOrderOpen, setIsCategoryOrderOpen] = useState(false);
+    const [isSavingCategoryOrder, setIsSavingCategoryOrder] = useState(false);
     const [topError, setTopError] = useState('');
+    const [recentEditingTransaction, setRecentEditingTransaction] = useState<ICalendarTransaction | null>(null);
+    const [isSubmittingRecentEdit, setIsSubmittingRecentEdit] = useState(false);
+    const [recentEditError, setRecentEditError] = useState('');
+    const [recentDeleteTarget, setRecentDeleteTarget] = useState<ICalendarTransaction | null>(null);
+    const [recentDeletingId, setRecentDeletingId] = useState<string | null>(null);
+    const [swipedRecentTransactionId, setSwipedRecentTransactionId] = useState<string | null>(null);
+    const [recentDragOffsetX, setRecentDragOffsetX] = useState(0);
+    const [recentEditType, setRecentEditType] = useState<TypeTransactionKind>('expense');
+    const [recentEditAmount, setRecentEditAmount] = useState('');
+    const [recentEditWalletId, setRecentEditWalletId] = useState('');
+    const [recentEditCategoryId, setRecentEditCategoryId] = useState('');
+    const [recentEditDescription, setRecentEditDescription] = useState('');
+    const [recentEditDate, setRecentEditDate] = useState('');
     const chatViewportRef = useRef<HTMLDivElement | null>(null);
     const shouldAutoScrollRef = useRef(false);
     const speechRecognitionRef = useRef<ISpeechRecognitionLike | null>(null);
@@ -267,6 +297,14 @@ export function ChatTab() {
     const analyserRef = useRef<AnalyserNode | null>(null);
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const levelAnimationFrameRef = useRef<number | null>(null);
+    const recentIgnoreNextClickRef = useRef(false);
+    const recentDragRef = useRef<{
+        id: string;
+        startX: number;
+        startOffset: number;
+        maxLeft: number;
+        hasMoved: boolean;
+    } | null>(null);
 
     useEffect(() => {
         let ignore = false;
@@ -328,6 +366,138 @@ export function ChatTab() {
     useEffect(() => {
         void loadRecentTransactions();
     }, []);
+
+    const openRecentEditModal = (transaction: ICalendarTransaction) => {
+        setRecentEditingTransaction(transaction);
+        setRecentEditType(transaction.type);
+        setRecentEditAmount(String(Math.round(transaction.amount)));
+        setRecentEditWalletId(transaction.walletId);
+        setRecentEditCategoryId(transaction.category);
+        setRecentEditDescription(transaction.description || '');
+        setRecentEditDate(formatDateInput(transaction.timestamp));
+        setRecentEditError('');
+        setSwipedRecentTransactionId(null);
+    };
+
+    const handleDeleteRecentTransaction = async () => {
+        if (!recentDeleteTarget) return;
+
+        setRecentDeletingId(recentDeleteTarget.id);
+        setTopError('');
+
+        try {
+            await deleteTransactionRequest(recentDeleteTarget.id);
+            await refreshWallets();
+            window.dispatchEvent(new CustomEvent('transaction:changed'));
+            await loadRecentTransactions();
+            setRecentDeleteTarget(null);
+        } catch (error) {
+            setTopError(
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+                    || 'Xóa giao dịch thất bại.',
+            );
+        } finally {
+            setRecentDeletingId(null);
+        }
+    };
+
+    const handleSaveRecentEdit = async () => {
+        if (!recentEditingTransaction) return;
+
+        const parsedAmount = Number(recentEditAmount || 0);
+        if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+            setRecentEditError('Số tiền không hợp lệ.');
+            return;
+        }
+
+        if (!recentEditWalletId) {
+            setRecentEditError('Vui lòng chọn ví.');
+            return;
+        }
+
+        if (!recentEditCategoryId) {
+            setRecentEditError('Vui lòng chọn danh mục.');
+            return;
+        }
+
+        setIsSubmittingRecentEdit(true);
+        setRecentEditError('');
+        setTopError('');
+
+        try {
+            await updateTransactionRequest(recentEditingTransaction.id, {
+                type: recentEditType,
+                amount: parsedAmount,
+                walletId: recentEditWalletId,
+                category: recentEditCategoryId,
+                description: recentEditDescription.trim() || undefined,
+                timestamp: parseDateInputToTimestamp(recentEditDate),
+            });
+
+            await refreshWallets();
+            window.dispatchEvent(new CustomEvent('transaction:changed'));
+            await loadRecentTransactions();
+            setRecentEditingTransaction(null);
+            setSwipedRecentTransactionId(null);
+            setRecentDragOffsetX(0);
+        } catch (error) {
+            setRecentEditError(
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+                    || 'Cập nhật giao dịch thất bại.',
+            );
+        } finally {
+            setIsSubmittingRecentEdit(false);
+        }
+    };
+
+    const handleRecentPointerDown = (id: string, event: PointerEvent<HTMLDivElement>) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) {
+            return;
+        }
+
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const rowWidth = event.currentTarget.getBoundingClientRect().width;
+        const maxLeft = Math.min(rowWidth / 2, rowWidth - 20);
+
+        recentDragRef.current = {
+            id,
+            startX: event.clientX,
+            startOffset: swipedRecentTransactionId === id ? -CHAT_SWIPE_SNAP_TO_EDIT : 0,
+            maxLeft,
+            hasMoved: false,
+        };
+
+        if (swipedRecentTransactionId !== id) {
+            setSwipedRecentTransactionId(null);
+        }
+    };
+
+    const handleRecentPointerMove = (id: string, event: PointerEvent<HTMLDivElement>) => {
+        if (!recentDragRef.current || recentDragRef.current.id !== id) return;
+
+        const delta = event.clientX - recentDragRef.current.startX;
+        if (Math.abs(delta) > 8) {
+            recentDragRef.current.hasMoved = true;
+        }
+
+        const next = Math.min(0, Math.max(-recentDragRef.current.maxLeft, recentDragRef.current.startOffset + delta));
+        setRecentDragOffsetX(next);
+    };
+
+    const handleRecentPointerEnd = (id: string) => {
+        if (!recentDragRef.current || recentDragRef.current.id !== id) return;
+
+        recentIgnoreNextClickRef.current = recentDragRef.current.hasMoved;
+
+        if (Math.abs(recentDragOffsetX) > 12) {
+            setSwipedRecentTransactionId(id);
+        } else {
+            setSwipedRecentTransactionId(null);
+        }
+
+        setRecentDragOffsetX(0);
+        recentDragRef.current = null;
+    };
 
     const scrollChatToBottom = (behavior: ScrollBehavior = 'smooth') => {
         if (!chatViewportRef.current) return;
@@ -486,12 +656,43 @@ export function ChatTab() {
         [wallets],
     );
 
+    const recentCategoryOptions = useMemo(
+        () =>
+            categories
+                .filter((item) => item.type === recentEditType)
+                .map((item) => ({
+                    value: item.id,
+                    label: `${item.icon || '🧩'} ${item.name}`,
+                })),
+        [categories, recentEditType],
+    );
+
     const editingMessage = useMemo(
         () => messages.find((message) => message.id === editingMessageId && message.transactionDraft),
         [messages, editingMessageId],
     );
 
     const editingDraft = editingMessage?.transactionDraft;
+
+    const handleSaveCategoryOrder = async (categoryIds: string[]) => {
+        if (!editingDraft) {
+            return;
+        }
+
+        setIsSavingCategoryOrder(true);
+        try {
+            await updateCategoryOrderRequest({
+                type: editingDraft.type,
+                categoryIds,
+            });
+
+            const refreshed = await getCategoriesRequest();
+            setCategories(refreshed);
+            setIsCategoryOrderOpen(false);
+        } finally {
+            setIsSavingCategoryOrder(false);
+        }
+    };
 
     useEffect(() => {
         if (!selectedWalletId) return;
@@ -1466,7 +1667,24 @@ export function ChatTab() {
                     </div>
 
                     <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Danh mục</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>Danh mục</span>
+                            <button
+                                type="button"
+                                onClick={() => setIsCategoryOrderOpen(true)}
+                                style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: 'var(--accent)',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Sắp xếp danh mục
+                            </button>
+                        </div>
                         <CustomSelect
                             value={editingDraft.categoryId}
                             onChange={(value) => updateMessageDraft(editingMessageId, (current) => ({ ...current, categoryId: value }))}
@@ -1702,6 +1920,248 @@ export function ChatTab() {
             </div>
 
             {renderEditModal()}
+
+            {recentEditingTransaction
+                ? createPortal(
+                      <div
+                          onClick={(event) => {
+                              if (event.target === event.currentTarget && !isSubmittingRecentEdit) {
+                                  setRecentEditingTransaction(null);
+                              }
+                          }}
+                          style={{
+                              position: 'fixed',
+                              inset: 0,
+                              zIndex: 1300,
+                              background: 'rgba(2, 8, 23, 0.45)',
+                              backdropFilter: 'blur(2px)',
+                              display: 'grid',
+                              alignItems: 'end',
+                          }}
+                      >
+                          <div
+                              style={{
+                                  width: 'min(100%, 620px)',
+                                  maxHeight: '82dvh',
+                                  margin: '0 auto',
+                                  borderRadius: '16px 16px 0 0',
+                                  border: '1px solid var(--surface-border)',
+                                  borderBottom: 'none',
+                                  background: 'var(--surface-base)',
+                                  overflow: 'auto',
+                                  padding: 12,
+                                  display: 'grid',
+                                  gap: 9,
+                              }}
+                          >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ fontWeight: 900, fontSize: 13.5 }}>Chỉnh sửa giao dịch</div>
+                                  <button
+                                      type="button"
+                                      onClick={() => setRecentEditingTransaction(null)}
+                                      disabled={isSubmittingRecentEdit}
+                                      style={{
+                                          width: 30,
+                                          height: 30,
+                                          borderRadius: 8,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'transparent',
+                                          color: 'var(--muted)',
+                                          display: 'grid',
+                                          placeItems: 'center',
+                                      }}
+                                  >
+                                      <X size={14} />
+                                  </button>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                  {(['expense', 'income'] as const).map((type) => (
+                                      <button
+                                          key={type}
+                                          type="button"
+                                          onClick={() => {
+                                              setRecentEditType(type);
+                                              const firstCategory = categories.find((item) => item.type === type)?.id || '';
+                                              setRecentEditCategoryId(firstCategory);
+                                          }}
+                                          style={{
+                                              borderRadius: 9,
+                                              border: recentEditType === type ? '1.5px solid var(--chip-border)' : '1px solid var(--surface-border)',
+                                              background: recentEditType === type ? 'var(--chip-bg)' : 'transparent',
+                                              color: 'var(--foreground)',
+                                              fontSize: 11.5,
+                                              padding: '8px 6px',
+                                          }}
+                                      >
+                                          {type === 'expense' ? '💸 Chi tiêu' : '💰 Thu nhập'}
+                                      </button>
+                                  ))}
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                  <div>
+                                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Số tiền</div>
+                                      <input
+                                          value={recentEditAmount ? new Intl.NumberFormat('vi-VN').format(Number(recentEditAmount) || 0) : ''}
+                                          onChange={(event) => setRecentEditAmount(event.target.value.replace(/\D/g, ''))}
+                                          style={{
+                                              width: '100%',
+                                              borderRadius: 10,
+                                              border: '1px solid var(--surface-border)',
+                                              background: 'var(--surface-soft)',
+                                              color: 'var(--foreground)',
+                                              padding: '9px 10px',
+                                              fontSize: 12.5,
+                                              boxSizing: 'border-box',
+                                          }}
+                                      />
+                                  </div>
+                                  <div>
+                                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Ngày</div>
+                                      <CustomDatePicker
+                                          value={recentEditDate}
+                                          onChange={(val) => {
+                                              if (val) setRecentEditDate(val);
+                                          }}
+                                          zIndex={1400}
+                                      />
+                                  </div>
+                              </div>
+
+                              <div>
+                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Ví</div>
+                                  <CustomSelect
+                                      value={recentEditWalletId}
+                                      onChange={setRecentEditWalletId}
+                                      options={walletOptions}
+                                      dropdownZIndex={1400}
+                                  />
+                              </div>
+
+                              <div>
+                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Danh mục</div>
+                                  <CustomSelect
+                                      value={recentEditCategoryId}
+                                      onChange={setRecentEditCategoryId}
+                                      options={recentCategoryOptions}
+                                      dropdownZIndex={1400}
+                                  />
+                              </div>
+
+                              <div>
+                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Ghi chú</div>
+                                  <input
+                                      value={recentEditDescription}
+                                      onChange={(event) => setRecentEditDescription(event.target.value)}
+                                      style={{
+                                          width: '100%',
+                                          borderRadius: 10,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'var(--surface-soft)',
+                                          color: 'var(--foreground)',
+                                          padding: '9px 10px',
+                                          fontSize: 12.5,
+                                          boxSizing: 'border-box',
+                                      }}
+                                  />
+                              </div>
+
+                              {recentEditError ? <div style={{ color: '#ef4444', fontSize: 12 }}>{recentEditError}</div> : null}
+
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                  <button
+                                      type="button"
+                                      onClick={() => setRecentEditingTransaction(null)}
+                                      disabled={isSubmittingRecentEdit}
+                                      style={{
+                                          borderRadius: 9,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'transparent',
+                                          color: 'var(--foreground)',
+                                          fontSize: 12,
+                                          padding: '8px 12px',
+                                      }}
+                                  >
+                                      Đóng
+                                  </button>
+                                  <PrimaryButton onClick={() => void handleSaveRecentEdit()} disabled={isSubmittingRecentEdit}>
+                                      {isSubmittingRecentEdit ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+                                      {isSubmittingRecentEdit ? 'Đang lưu...' : 'Lưu thay đổi'}
+                                  </PrimaryButton>
+                              </div>
+                          </div>
+                      </div>,
+                      document.body,
+                  )
+                : null}
+
+            {recentDeleteTarget
+                ? createPortal(
+                      <div
+                          style={{
+                              position: 'fixed',
+                              inset: 0,
+                              zIndex: 1310,
+                              background: 'rgba(2, 6, 23, 0.56)',
+                              backdropFilter: 'blur(2px)',
+                              display: 'grid',
+                              placeItems: 'center',
+                              padding: 16,
+                          }}
+                      >
+                          <AppCard strong style={{ width: 'min(100%, 360px)', padding: 16, borderRadius: 16 }}>
+                              <div style={{ fontSize: 15, fontWeight: 900 }}>Xác nhận xóa giao dịch</div>
+                              <div style={{ marginTop: 4, color: 'var(--muted)', fontSize: 12.5 }}>
+                                  Bạn có chắc chắn muốn xóa giao dịch này?
+                              </div>
+
+                              <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                  <button
+                                      type="button"
+                                      onClick={() => setRecentDeleteTarget(null)}
+                                      disabled={recentDeletingId === recentDeleteTarget.id}
+                                      style={{
+                                          minHeight: 40,
+                                          borderRadius: 12,
+                                          border: '1px solid var(--border)',
+                                          background: 'transparent',
+                                          color: 'var(--foreground)',
+                                          fontWeight: 700,
+                                      }}
+                                  >
+                                      Hủy
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={() => void handleDeleteRecentTransaction()}
+                                      disabled={recentDeletingId === recentDeleteTarget.id}
+                                      style={{
+                                          minHeight: 40,
+                                          borderRadius: 12,
+                                          border: '1px solid color-mix(in srgb, var(--danger) 45%, var(--border))',
+                                          background: 'color-mix(in srgb, var(--danger) 16%, transparent)',
+                                          color: 'var(--danger)',
+                                          fontWeight: 800,
+                                      }}
+                                  >
+                                      {recentDeletingId === recentDeleteTarget.id ? 'Đang xóa...' : 'Đồng ý'}
+                                  </button>
+                              </div>
+                          </AppCard>
+                      </div>,
+                      document.body,
+                  )
+                : null}
+
+            <CategoryOrderModal
+                isOpen={isCategoryOrderOpen}
+                type={editingDraft?.type || 'expense'}
+                categories={categories}
+                isSaving={isSavingCategoryOrder}
+                onClose={() => setIsCategoryOrderOpen(false)}
+                onSave={handleSaveCategoryOrder}
+            />
 
             {imageAttachment ? (
                 <div
@@ -1949,63 +2409,158 @@ export function ChatTab() {
                             const categoryIcon = categoryObj?.icon || '🧩';
                             const fullDescription = transaction.description || categoryLabel;
                             const shortDescription = truncateText(fullDescription, 36);
+                            const isDraggingThis = recentDragRef.current?.id === transaction.id;
+                            const translateX = isDraggingThis
+                                ? recentDragOffsetX
+                                : swipedRecentTransactionId === transaction.id
+                                    ? -CHAT_SWIPE_SNAP_TO_EDIT
+                                    : 0;
+                            const showActions =
+                                isDraggingThis
+                                || swipedRecentTransactionId === transaction.id
+                                || translateX < -1;
 
                             return (
                                 <div
                                     key={transaction.id}
                                     style={{
-                                        border: '1px solid var(--surface-border)',
-                                        background: 'linear-gradient(135deg, color-mix(in srgb, var(--surface-soft) 92%, white), var(--surface-soft))',
                                         borderRadius: 9,
-                                        padding: '8px 9px',
-                                        display: 'grid',
-                                        gridTemplateColumns: 'auto 1fr auto',
-                                        gap: 8,
-                                        alignItems: 'center',
+                                        position: 'relative',
+                                        overflow: 'hidden',
                                     }}
                                 >
                                     <div
                                         style={{
-                                            width: 28,
-                                            height: 28,
-                                            borderRadius: 8,
                                             border: '1px solid var(--surface-border)',
-                                            background: 'var(--surface-base)',
-                                            display: 'grid',
-                                            placeItems: 'center',
-                                            fontSize: 14,
+                                            background: 'var(--surface-soft)',
+                                            position: 'absolute',
+                                            inset: 0,
+                                            display: 'flex',
+                                            justifyContent: 'flex-end',
+                                            alignItems: 'stretch',
+                                            gap: CHAT_ACTION_GAP,
+                                            padding: CHAT_ACTION_SIDE_PADDING,
+                                            opacity: showActions ? 1 : 0,
+                                            pointerEvents: showActions ? 'auto' : 'none',
+                                            transition: 'opacity 140ms ease',
                                         }}
                                     >
-                                        {categoryIcon}
-                                    </div>
-                                    <div>
-                                        <div
-                                            title={fullDescription}
+                                        <button
+                                            type="button"
+                                            onClick={() => openRecentEditModal(transaction)}
                                             style={{
-                                                fontSize: 11.6,
-                                                fontWeight: 700,
-                                                lineHeight: 1.35,
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                maxWidth: '100%',
+                                                width: CHAT_ACTION_BUTTON_WIDTH,
+                                                border: '1px solid rgba(59,130,246,0.35)',
+                                                borderRadius: 8,
+                                                background: 'rgba(59,130,246,0.14)',
+                                                color: '#2563eb',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                            }}
+                                            title="Chỉnh sửa"
+                                        >
+                                            <Pencil size={14} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={recentDeletingId === transaction.id}
+                                            onClick={() => {
+                                                setRecentDeleteTarget(transaction);
+                                                setSwipedRecentTransactionId(null);
+                                            }}
+                                            style={{
+                                                width: CHAT_ACTION_BUTTON_WIDTH,
+                                                border: '1px solid rgba(239,68,68,0.35)',
+                                                borderRadius: 8,
+                                                background: 'rgba(239,68,68,0.14)',
+                                                color: '#dc2626',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                opacity: recentDeletingId === transaction.id ? 0.7 : 1,
+                                            }}
+                                            title="Xóa"
+                                        >
+                                            {recentDeletingId === transaction.id ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />}
+                                        </button>
+                                    </div>
+
+                                    <div
+                                        onPointerDown={(event) => handleRecentPointerDown(transaction.id, event)}
+                                        onPointerMove={(event) => handleRecentPointerMove(transaction.id, event)}
+                                        onPointerUp={() => handleRecentPointerEnd(transaction.id)}
+                                        onPointerCancel={() => handleRecentPointerEnd(transaction.id)}
+                                        onClick={() => {
+                                            if (recentIgnoreNextClickRef.current) {
+                                                recentIgnoreNextClickRef.current = false;
+                                                return;
+                                            }
+
+                                            if (swipedRecentTransactionId === transaction.id) {
+                                                setSwipedRecentTransactionId(null);
+                                            }
+                                        }}
+                                        style={{
+                                            border: '1px solid var(--surface-border)',
+                                            background: 'linear-gradient(135deg, color-mix(in srgb, var(--surface-soft) 92%, white), var(--surface-soft))',
+                                            borderRadius: 9,
+                                            padding: '8px 9px',
+                                            display: 'grid',
+                                            gridTemplateColumns: 'auto 1fr auto',
+                                            gap: 8,
+                                            alignItems: 'center',
+                                            position: 'relative',
+                                            zIndex: 1,
+                                            transform: `translateX(${translateX}px)`,
+                                            transition: isDraggingThis ? 'none' : 'transform 180ms ease',
+                                            touchAction: 'pan-y',
+                                            cursor: isDraggingThis ? 'grabbing' : 'pointer',
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                width: 28,
+                                                height: 28,
+                                                borderRadius: 8,
+                                                border: '1px solid var(--surface-border)',
+                                                background: 'var(--surface-base)',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                fontSize: 14,
                                             }}
                                         >
-                                            {shortDescription}
+                                            {categoryIcon}
                                         </div>
-                                        <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
-                                            {categoryLabel} • thêm lúc {formatDateTimeDisplay(item.actionCreatedAt)}
+
+                                        <div>
+                                            <div
+                                                title={fullDescription}
+                                                style={{
+                                                    fontSize: 11.6,
+                                                    fontWeight: 700,
+                                                    lineHeight: 1.35,
+                                                    whiteSpace: 'nowrap',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    maxWidth: '100%',
+                                                }}
+                                            >
+                                                {shortDescription}
+                                            </div>
+                                            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
+                                                {categoryLabel} • thêm lúc {formatDateTimeDisplay(item.actionCreatedAt)}
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div
-                                        style={{
-                                            fontSize: 11.8,
-                                            fontWeight: 800,
-                                            color: transaction.type === 'income' ? '#16a34a' : '#f97316',
-                                            whiteSpace: 'nowrap',
-                                        }}
-                                    >
-                                        {transaction.type === 'income' ? '+' : '-'}{formatCurrencyVND(transaction.amount)}
+
+                                        <div
+                                            style={{
+                                                fontSize: 11.8,
+                                                fontWeight: 800,
+                                                color: transaction.type === 'income' ? '#16a34a' : '#f97316',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {transaction.type === 'income' ? '+' : '-'}{formatCurrencyVND(transaction.amount)}
+                                        </div>
                                     </div>
                                 </div>
                             );

@@ -8,6 +8,7 @@ const mapRow = (row: {
     name: string;
     icon: string | null;
     type: string;
+    orderIndex?: number;
     isDefault: boolean;
     isDeleted: boolean;
     createdAt: bigint;
@@ -19,6 +20,7 @@ const mapRow = (row: {
         name: String(row.name),
         icon: row.icon ? String(row.icon) : undefined,
         type: String(row.type) as TypeCategoryKind,
+        orderIndex: Number(row.orderIndex || 0),
         isDefault: Boolean(row.isDefault),
         isDeleted: Boolean(row.isDeleted),
         createdAt: Number(row.createdAt || 0n),
@@ -33,14 +35,11 @@ const listCategoriesByUser = async (
     const result = await prisma.category.findMany({
         where: {
             isDeleted: false,
-            OR: [
-                { isDefault: true },
-                { userId: String(userId) },
-            ],
+            userId: String(userId),
             ...(type ? { type } : {}),
         },
         orderBy: [
-            { isDefault: "desc" },
+            { orderIndex: "asc" },
             { updatedAt: "desc" },
         ],
         take: 200,
@@ -59,13 +58,10 @@ const findCategoryByUserAndName = async (
             type,
             name,
             isDeleted: false,
-            OR: [
-                { isDefault: true },
-                { userId: String(userId) },
-            ],
+            userId: String(userId),
         },
         orderBy: [
-            { isDefault: "desc" },
+            { orderIndex: "asc" },
             { updatedAt: "desc" },
         ],
     });
@@ -81,13 +77,10 @@ const findCategoryByIdForUser = async (
         where: {
             id: categoryId,
             isDeleted: false,
-            OR: [
-                { isDefault: true },
-                { userId: String(userId) },
-            ],
+            userId: String(userId),
         },
         orderBy: [
-            { isDefault: "desc" },
+            { orderIndex: "asc" },
             { updatedAt: "desc" },
         ],
     });
@@ -100,6 +93,8 @@ const createCategoryForUser = async (
     name: string,
     type: TypeCategoryKind,
     icon?: string,
+    orderIndex = 0,
+    isDefault = false,
 ): Promise<ICategory> => {
     const now = Date.now();
     const category: ICategory = {
@@ -108,7 +103,8 @@ const createCategoryForUser = async (
         name,
         icon,
         type,
-        isDefault: false,
+        orderIndex,
+        isDefault,
         isDeleted: false,
         createdAt: now,
         updatedAt: now,
@@ -121,6 +117,7 @@ const createCategoryForUser = async (
             name: category.name,
             icon: category.icon || null,
             type: category.type,
+            orderIndex: category.orderIndex,
             isDefault: category.isDefault,
             isDeleted: category.isDeleted,
             createdAt: BigInt(category.createdAt),
@@ -131,9 +128,49 @@ const createCategoryForUser = async (
     return category;
 };
 
+const getMaxOrderIndexByUserAndType = async (
+    userId: string,
+    type: TypeCategoryKind,
+): Promise<number> => {
+    const result = await prisma.$queryRaw<Array<{ max_index: number | null }>>`
+        SELECT MAX(cate_index)::int AS max_index
+        FROM categories
+        WHERE u_id = ${String(userId)}
+          AND cate_type = ${type}
+          AND is_deleted = false
+    `;
+
+    return Number(result?.[0]?.max_index || 0);
+};
+
+const reorderCategoriesByUser = async (
+    userId: string,
+    items: Array<{ id: string; orderIndex: number }>,
+): Promise<void> => {
+    const now = Date.now();
+
+    await prisma.$transaction(
+        items.map((item) =>
+            prisma.category.updateMany({
+                where: {
+                    id: item.id,
+                    userId: String(userId),
+                    isDeleted: false,
+                },
+                data: {
+                    orderIndex: item.orderIndex,
+                    updatedAt: BigInt(now),
+                },
+            }),
+        ),
+    );
+};
+
 export {
     listCategoriesByUser,
     findCategoryByUserAndName,
     findCategoryByIdForUser,
     createCategoryForUser,
+    getMaxOrderIndexByUserAndType,
+    reorderCategoriesByUser,
 };

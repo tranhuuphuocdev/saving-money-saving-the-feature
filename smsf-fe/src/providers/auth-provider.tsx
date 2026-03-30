@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getProfileRequest, loginRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest } from '@/lib/auth/api';
+import { getProfileRequest, loginRequest, loginWithGoogleRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest } from '@/lib/auth/api';
 import { createWalletRequest, getWalletsRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
 import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
@@ -70,8 +70,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void bootstrap();
     }, [bootstrap]);
 
+    useEffect(() => {
+        if (!user) {
+            return;
+        }
+
+        const handleTransactionChanged = () => {
+            void refreshWalletsSafely();
+        };
+
+        window.addEventListener('transaction:changed', handleTransactionChanged);
+
+        return () => {
+            window.removeEventListener('transaction:changed', handleTransactionChanged);
+        };
+    }, [refreshWalletsSafely, user]);
+
     const login = useCallback(async (username: string, password: string) => {
         const data = await loginRequest(username, password);
+        setSession(data.user);
+        setUser(data.user);
+        void refreshWalletsSafely();
+    }, [refreshWalletsSafely]);
+
+    const loginWithGoogle = useCallback(async (credential: string) => {
+        const data = await loginWithGoogleRequest(credential);
         setSession(data.user);
         setUser(data.user);
         void refreshWalletsSafely();
@@ -115,17 +138,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             totalWalletBalance,
             wallets,
             login,
+            loginWithGoogle,
             register,
             createWallet,
             updateTelegramChatId,
             logout,
             refreshProfile,
             refreshWallets,
-                updateWalletActive,
+            updateWalletActive,
         }),
         [
             isLoading,
             login,
+            loginWithGoogle,
             register,
             createWallet,
             updateTelegramChatId,
@@ -135,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             totalWalletBalance,
             user,
             wallets,
-                updateWalletActive,
+            updateWalletActive,
         ],
     );
 

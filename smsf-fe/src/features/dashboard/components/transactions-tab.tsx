@@ -4,6 +4,7 @@ import { FormEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useSt
 import { Check, LoaderCircle, Pencil, Trash2, TriangleAlert, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
+import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomDatePicker } from '@/components/common/custom-date-picker';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
@@ -11,6 +12,7 @@ import {
     deleteTransactionRequest,
     getCategoriesRequest,
     queryTransactionsRequest,
+    updateCategoryOrderRequest,
     updateTransactionRequest,
 } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
@@ -18,7 +20,16 @@ import { useAuth } from '@/providers/auth-provider';
 import { ICalendarTransaction, ICategoryItem, ITransactionQueryParams } from '@/types/calendar';
 
 const PAGE_SIZE = 15;
-const SWIPE_ACTION_WIDTH = 96;
+const ACTION_SIDE_PADDING = 6;
+const ACTION_BUTTON_WIDTH = 42;
+const ACTION_GAP = 6;
+const ACTION_TRAILING_PADDING = 6;
+const SWIPE_SNAP_TO_EDIT =
+    ACTION_SIDE_PADDING
+    + ACTION_BUTTON_WIDTH
+    + ACTION_GAP
+    + ACTION_BUTTON_WIDTH
+    + ACTION_TRAILING_PADDING;
 
 const toStartOfDayTimestamp = (dateValue: string): number | undefined => {
     if (!dateValue) {
@@ -108,14 +119,18 @@ export function TransactionsTab() {
     const [editError, setEditError] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<ICalendarTransaction | null>(null);
+    const [isCategoryOrderOpen, setIsCategoryOrderOpen] = useState(false);
+    const [isSavingCategoryOrder, setIsSavingCategoryOrder] = useState(false);
 
     const [swipedTransactionId, setSwipedTransactionId] = useState<string | null>(null);
     const [dragOffsetX, setDragOffsetX] = useState(0);
     const ignoreNextClickRef = useRef(false);
     const dragRef = useRef<{
         id: string;
+        width: number;
         startX: number;
         startOffset: number;
+        maxLeft: number;
         isDragging: boolean;
         hasMoved: boolean;
     } | null>(null);
@@ -199,18 +214,18 @@ export function TransactionsTab() {
         void fetchTransactions(1, false);
     }, [fetchTransactions]);
 
-    useEffect(() => {
-        async function fetchCategories() {
-            try {
-                const items = await getCategoriesRequest();
-                setCategories(items);
-            } catch {
-                setCategories([]);
-            }
+    const refreshCategories = useCallback(async () => {
+        try {
+            const items = await getCategoriesRequest();
+            setCategories(items);
+        } catch {
+            setCategories([]);
         }
-
-        void fetchCategories();
     }, []);
+
+    useEffect(() => {
+        void refreshCategories();
+    }, [refreshCategories]);
 
     const handleApplyFilters = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -312,6 +327,7 @@ export function TransactionsTab() {
             }
 
             await refreshWallets();
+            await refreshCategories();
             await fetchTransactions(1, false);
             setEditingTransaction(null);
         } catch (error) {
@@ -324,16 +340,35 @@ export function TransactionsTab() {
         }
     };
 
+    const handleSaveCategoryOrder = async (categoryIds: string[]) => {
+        setIsSavingCategoryOrder(true);
+        try {
+            await updateCategoryOrderRequest({
+                type: editType,
+                categoryIds,
+            });
+            await refreshCategories();
+            setIsCategoryOrderOpen(false);
+        } finally {
+            setIsSavingCategoryOrder(false);
+        }
+    };
+
     const handlePointerDown = (id: string, event: PointerEvent<HTMLDivElement>) => {
         if (event.pointerType === 'mouse' && event.button !== 0) {
             return;
         }
 
         event.currentTarget.setPointerCapture(event.pointerId);
+        const rowWidth = event.currentTarget.getBoundingClientRect().width;
+        const maxLeft = Math.min(rowWidth / 2, rowWidth - 24);
+
         dragRef.current = {
             id,
+            width: rowWidth,
             startX: event.clientX,
-            startOffset: swipedTransactionId === id ? -SWIPE_ACTION_WIDTH : 0,
+            startOffset: swipedTransactionId === id ? -SWIPE_SNAP_TO_EDIT : 0,
+            maxLeft,
             isDragging: false,
             hasMoved: false,
         };
@@ -352,7 +387,7 @@ export function TransactionsTab() {
             dragRef.current.hasMoved = true;
         }
 
-        const next = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, dragRef.current.startOffset + delta));
+        const next = Math.min(0, Math.max(-dragRef.current.maxLeft, dragRef.current.startOffset + delta));
         setDragOffsetX(next);
     };
 
@@ -360,20 +395,26 @@ export function TransactionsTab() {
         if (!dragRef.current || dragRef.current.id !== id) return;
 
         ignoreNextClickRef.current = dragRef.current.hasMoved;
-        const shouldOpen = dragOffsetX <= -SWIPE_ACTION_WIDTH / 2;
-        setSwipedTransactionId(shouldOpen ? id : null);
+        const reachedDeleteLimit = Math.abs(dragOffsetX) >= dragRef.current.maxLeft - 1;
+
+        if (reachedDeleteLimit) {
+            const target = transactions.find((transaction) => transaction.id === id) || null;
+            if (target) {
+                setDeleteTarget(target);
+            }
+            setSwipedTransactionId(null);
+        } else if (Math.abs(dragOffsetX) > 12) {
+            setSwipedTransactionId(id);
+        } else {
+            setSwipedTransactionId(null);
+        }
+
         setDragOffsetX(0);
         dragRef.current = null;
     };
 
-    const categoryOptions = useMemo(
-        () =>
-            categories
-                .filter((item) => item.type === editType)
-                .map((item) => ({
-                    value: item.id,
-                    label: `${item.icon || '🧩'} ${item.name}`,
-                })),
+    const editTypeCategories = useMemo(
+        () => categories.filter((item) => item.type === editType),
         [categories, editType],
     );
 
@@ -543,7 +584,7 @@ export function TransactionsTab() {
                         const translateX = isDraggingThis
                             ? dragOffsetX
                             : swipedTransactionId === transaction.id
-                              ? -SWIPE_ACTION_WIDTH
+                                                            ? -SWIPE_SNAP_TO_EDIT
                               : 0;
                         const showActions = isDraggingThis || swipedTransactionId === transaction.id || translateX < -1;
                         const categoryIcon = categories.find((item) => item.id === transaction.category)?.icon || '🧩';
@@ -816,22 +857,98 @@ export function TransactionsTab() {
 
                               <div>
                                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Ví</div>
-                                  <CustomSelect
-                                      value={editWalletId}
-                                      onChange={setEditWalletId}
-                                      options={walletOptions}
-                                      dropdownZIndex={1400}
-                                  />
+                                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                                      {wallets
+                                          .filter((wallet) => wallet.isActive !== false)
+                                          .map((wallet) => {
+                                              const selected = editWalletId === wallet.id;
+                                              return (
+                                                  <button
+                                                      key={wallet.id}
+                                                      type="button"
+                                                      onClick={() => setEditWalletId(wallet.id)}
+                                                      style={{
+                                                          borderRadius: 10,
+                                                          border: selected
+                                                              ? '1.5px solid var(--chip-border)'
+                                                              : '1px solid var(--surface-border)',
+                                                          background: selected ? 'var(--chip-bg)' : 'var(--surface-soft)',
+                                                          color: 'var(--foreground)',
+                                                          padding: '7px 11px',
+                                                          fontSize: 12,
+                                                          fontWeight: selected ? 800 : 600,
+                                                          textAlign: 'center',
+                                                      }}
+                                                  >
+                                                      <div>{wallet.name}</div>
+                                                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                                                          {formatCurrencyVND(wallet.balance)}
+                                                      </div>
+                                                  </button>
+                                              );
+                                          })}
+                                  </div>
                               </div>
 
                               <div>
-                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Danh mục</div>
-                                  <CustomSelect
-                                      value={editCategoryId}
-                                      onChange={setEditCategoryId}
-                                      options={categoryOptions}
-                                      dropdownZIndex={1400}
-                                  />
+                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span>Danh mục</span>
+                                      <button
+                                          type="button"
+                                          onClick={() => setIsCategoryOrderOpen(true)}
+                                          style={{
+                                              border: 'none',
+                                              background: 'transparent',
+                                              color: 'var(--accent)',
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              padding: 0,
+                                              cursor: 'pointer',
+                                          }}
+                                      >
+                                          Sắp xếp danh mục
+                                      </button>
+                                  </div>
+                                  <div
+                                      style={{
+                                          display: 'grid',
+                                          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                                          gap: 8,
+                                      }}
+                                  >
+                                      {editTypeCategories.map((item) => {
+                                          const selected = item.id === editCategoryId;
+
+                                          return (
+                                              <button
+                                                  key={item.id}
+                                                  type="button"
+                                                  onClick={() => setEditCategoryId(item.id)}
+                                                  style={{
+                                                      minHeight: 44,
+                                                      borderRadius: 10,
+                                                      border: selected
+                                                          ? '1px solid var(--theme-gradient-start)'
+                                                          : '1px solid var(--surface-border)',
+                                                      background: selected ? 'var(--chip-bg)' : 'var(--surface-soft)',
+                                                      color: 'var(--foreground)',
+                                                      fontSize: 'clamp(11px, 2.6vw, 12px)',
+                                                      fontWeight: selected ? 700 : 600,
+                                                      padding: '8px 6px',
+                                                      textAlign: 'center',
+                                                      lineHeight: 1.25,
+                                                      wordBreak: 'break-word',
+                                                      display: 'grid',
+                                                      gap: 2,
+                                                      placeItems: 'center',
+                                                  }}
+                                              >
+                                                  <span style={{ fontSize: 15, lineHeight: 1 }}>{item.icon || '🧩'}</span>
+                                                  <span>{item.name}</span>
+                                              </button>
+                                          );
+                                      })}
+                                  </div>
                               </div>
 
                               <div>
@@ -883,6 +1000,15 @@ export function TransactionsTab() {
                       document.body,
                   )
                 : null}
+
+            <CategoryOrderModal
+                isOpen={isCategoryOrderOpen}
+                type={editType}
+                categories={categories}
+                isSaving={isSavingCategoryOrder}
+                onClose={() => setIsCategoryOrderOpen(false)}
+                onSave={handleSaveCategoryOrder}
+            />
 
             {deleteTarget
                 ? createPortal(
