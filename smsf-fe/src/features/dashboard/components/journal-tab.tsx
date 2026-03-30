@@ -1,14 +1,15 @@
 'use client';
 
-import { Check, ImagePlus, LoaderCircle, MessageCircle, Pencil, Send, Trash2, X } from 'lucide-react';
+import { BarChart3, Check, ImagePlus, LoaderCircle, MessageCircle, Mic, Pencil, Send, Square, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import {
+    analyzeMonthlyInsightsRequest,
     analyzeSmartReceiptRequest,
-    analyzeSmartTextRequest,
+    analyzeSmartTextMultiRequest,
     createTransactionRequest,
     getCategoriesRequest,
     getRecentTransactionsRequest,
@@ -16,7 +17,12 @@ import {
 } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { useAuth } from '@/providers/auth-provider';
-import { IAiTransactionSuggestion } from '@/types/ai';
+import {
+    IAiMonthlyInsightResult,
+    IAiTransactionSuggestion,
+    TypeAiInsightPeriod,
+    TypeAiMonthlyAnalysis,
+} from '@/types/ai';
 import { ICalendarTransaction, ICategoryItem, IWalletItem, TypeTransactionKind } from '@/types/calendar';
 
 interface IImageAttachment {
@@ -47,12 +53,24 @@ interface IChatMessage {
     text?: string;
     imageUrl?: string;
     transactionDraft?: ITransactionDraft;
+    monthlyInsight?: IAiMonthlyInsightResult;
     compact?: boolean;
 }
 
 interface IRecentActionItem {
     transaction: ICalendarTransaction;
     actionCreatedAt: number;
+}
+
+interface ISpeechRecognitionLike {
+    lang: string;
+    continuous: boolean;
+    interimResults: boolean;
+    onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+    onerror: ((event: { error?: string }) => void) | null;
+    onend: (() => void) | null;
+    start: () => void;
+    stop: () => void;
 }
 
 const formatDateInput = (timestamp: number): string => {
@@ -90,6 +108,10 @@ const parseDateInputToTimestamp = (dateInput: string): number => {
     return parsed;
 };
 
+const formatMonthYearLabel = (month: number, year: number): string => {
+    return `${String(month).padStart(2, '0')}/${year}`;
+};
+
 const truncateText = (value: string | undefined, maxLength = 34): string => {
     const text = String(value || '').trim();
     if (!text) return '';
@@ -98,9 +120,67 @@ const truncateText = (value: string | undefined, maxLength = 34): string => {
 };
 
 const TRANSACTION_INTENT_PATTERN = /(\d|k\b|tr\b|triệu|nghìn|ngan|đ\b|vnd|chi|thu|mua|trả|lương|xăng|đi chợ|hoa don|hoá đơn|bill)/i;
+const ANALYSIS_INTENT_PATTERN = /(phân tích|phan tich|phân thích|phan thich|nhận định|nhan dinh|liệt kê|liet ke|bất thường|bat thuong|chi tiêu|chi tieu)/i;
 
 const seemsTransactionIntent = (text: string): boolean => {
     return TRANSACTION_INTENT_PATTERN.test(String(text || '').toLowerCase());
+};
+
+const parseInsightIntentFromText = (text: string): {
+    analysisType: TypeAiMonthlyAnalysis;
+    periodType: TypeAiInsightPeriod;
+    isYearUnsupported: boolean;
+    referenceTimestamp?: number;
+} | null => {
+    const normalized = String(text || '').trim().toLowerCase();
+    if (!normalized || !ANALYSIS_INTENT_PATTERN.test(normalized)) return null;
+
+    const includesYear = /(năm|nam|theo năm|theo nam)/i.test(normalized);
+    if (includesYear) {
+        return {
+            analysisType: /bất thường|bat thuong/i.test(normalized) ? 'wasteful-top' : 'spending-overview',
+            periodType: 'month',
+            isYearUnsupported: true,
+        };
+    }
+
+    const dateMatch = normalized.match(/(?:ngày\s*)?(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?/i);
+    let referenceTimestamp: number | undefined;
+    if (dateMatch) {
+        const day = Number(dateMatch[1]);
+        const month = Number(dateMatch[2]);
+        const yearRaw = Number(dateMatch[3]);
+        const nowYear = new Date().getFullYear();
+        const year = Number.isFinite(yearRaw)
+            ? (yearRaw < 100 ? 2000 + yearRaw : yearRaw)
+            : nowYear;
+
+        const parsed = new Date(year, month - 1, day, 12, 0, 0, 0).getTime();
+        if (Number.isFinite(parsed)) {
+            referenceTimestamp = parsed;
+        }
+    }
+
+    const periodType: TypeAiInsightPeriod =
+        referenceTimestamp
+            ? 'day'
+            : /(hôm nay|hom nay|today)/i.test(normalized)
+            ? 'day'
+            : /(tuần này|tuan nay|this week)/i.test(normalized)
+                ? 'week'
+                : 'month';
+
+    const analysisType: TypeAiMonthlyAnalysis =
+        /(bất thường|bat thuong|không đáng|khong dang|top)/i.test(normalized)
+            ? 'wasteful-top'
+            : 'spending-overview';
+
+    return {
+        analysisType,
+        periodType,
+        isYearUnsupported: false,
+        referenceTimestamp,
+    };
 };
 
 const normalizeAiWarnings = (warnings: string[]): string[] => {
@@ -174,11 +254,18 @@ export function ChatTab() {
     const [imageAttachment, setImageAttachment] = useState<IImageAttachment | null>(null);
     const [recentActions, setRecentActions] = useState<IRecentActionItem[]>([]);
     const [isBusy, setIsBusy] = useState(false);
+    const [isVoiceListening, setIsVoiceListening] = useState(false);
+    const [voiceLevel, setVoiceLevel] = useState(0);
     const [isRecentLoading, setIsRecentLoading] = useState(false);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [topError, setTopError] = useState('');
     const chatViewportRef = useRef<HTMLDivElement | null>(null);
     const shouldAutoScrollRef = useRef(false);
+    const speechRecognitionRef = useRef<ISpeechRecognitionLike | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const mediaStreamRef = useRef<MediaStream | null>(null);
+    const levelAnimationFrameRef = useRef<number | null>(null);
 
     useEffect(() => {
         let ignore = false;
@@ -248,6 +335,128 @@ export function ChatTab() {
             behavior,
         });
     };
+
+    const stopVoiceLevelMeter = () => {
+        if (levelAnimationFrameRef.current) {
+            cancelAnimationFrame(levelAnimationFrameRef.current);
+            levelAnimationFrameRef.current = null;
+        }
+
+        if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+            mediaStreamRef.current = null;
+        }
+
+        if (audioContextRef.current) {
+            void audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
+
+        analyserRef.current = null;
+        setVoiceLevel(0);
+    };
+
+    const stopVoiceListening = () => {
+        if (speechRecognitionRef.current) {
+            speechRecognitionRef.current.onend = null;
+            speechRecognitionRef.current.onerror = null;
+            speechRecognitionRef.current.onresult = null;
+            speechRecognitionRef.current.stop();
+            speechRecognitionRef.current = null;
+        }
+
+        stopVoiceLevelMeter();
+        setIsVoiceListening(false);
+    };
+
+    const startVoiceListening = async () => {
+        if (isBusy || isVoiceListening) return;
+
+        const SpeechRecognitionCtor = (window as typeof window & {
+            SpeechRecognition?: new () => ISpeechRecognitionLike;
+            webkitSpeechRecognition?: new () => ISpeechRecognitionLike;
+        }).SpeechRecognition
+            || (window as typeof window & {
+                SpeechRecognition?: new () => ISpeechRecognitionLike;
+                webkitSpeechRecognition?: new () => ISpeechRecognitionLike;
+            }).webkitSpeechRecognition;
+
+        if (!SpeechRecognitionCtor) {
+            setTopError('Trình duyệt chưa hỗ trợ voice chat. Bạn thử Chrome hoặc Edge mới nhất nhé.');
+            return;
+        }
+
+        try {
+            setTopError('');
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaStreamRef.current = stream;
+
+            const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+            if (AudioContextCtor) {
+                const audioContext = new AudioContextCtor();
+                audioContextRef.current = audioContext;
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                analyserRef.current = analyser;
+
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+
+                const data = new Uint8Array(analyser.frequencyBinCount);
+                const tick = () => {
+                    if (!analyserRef.current) return;
+
+                    analyserRef.current.getByteFrequencyData(data);
+                    const average = data.reduce((sum, value) => sum + value, 0) / (data.length || 1);
+                    const normalized = Math.max(0, Math.min(1, average / 120));
+                    setVoiceLevel(normalized);
+                    levelAnimationFrameRef.current = requestAnimationFrame(tick);
+                };
+                tick();
+            }
+
+            const recognition = new SpeechRecognitionCtor();
+            speechRecognitionRef.current = recognition;
+            recognition.lang = 'vi-VN';
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onresult = (event) => {
+                let transcript = '';
+                for (let index = event.resultIndex; index < event.results.length; index += 1) {
+                    transcript += String(event.results[index]?.[0]?.transcript || '');
+                }
+
+                if (transcript.trim()) {
+                    setTextInput(transcript.trim());
+                }
+            };
+
+            recognition.onerror = (event) => {
+                const errorType = String(event.error || '').toLowerCase();
+                if (errorType !== 'no-speech') {
+                    setTopError('Không nhận diện được giọng nói. Bạn thử nói rõ hơn hoặc thử lại nhé.');
+                }
+                stopVoiceListening();
+            };
+
+            recognition.onend = () => {
+                stopVoiceListening();
+            };
+
+            setIsVoiceListening(true);
+            recognition.start();
+        } catch {
+            stopVoiceListening();
+            setTopError('Không thể mở micro. Bạn hãy kiểm tra quyền truy cập microphone của trình duyệt.');
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            stopVoiceListening();
+        };
+    }, []);
 
     useEffect(() => {
         if (!shouldAutoScrollRef.current) return;
@@ -384,7 +593,43 @@ export function ChatTab() {
         const normalized = textInput.trim();
         if (!normalized || isBusy) return;
 
+        if (isVoiceListening) {
+            stopVoiceListening();
+        }
+
         setTopError('');
+        const insightIntent = parseInsightIntentFromText(normalized);
+        if (insightIntent?.isYearUnsupported) {
+            shouldAutoScrollRef.current = true;
+            setMessages((previous) => [
+                ...previous,
+                {
+                    id: `user-${Date.now()}`,
+                    role: 'user',
+                    text: normalized,
+                },
+                {
+                    id: `assistant-year-${Date.now()}`,
+                    role: 'assistant',
+                    compact: true,
+                    text: 'trợ lý Pô con chưa được nạp VIP lần đầu, bạn thông cảm nhé huhu',
+                },
+            ]);
+            setTextInput('');
+            return;
+        }
+
+        if (insightIntent) {
+            setTextInput('');
+            await runInsightAnalysis({
+                analysisType: insightIntent.analysisType,
+                periodType: insightIntent.periodType,
+                userText: normalized,
+                referenceTimestamp: insightIntent.referenceTimestamp,
+            });
+            return;
+        }
+
         if (!seemsTransactionIntent(normalized)) {
             shouldAutoScrollRef.current = true;
             setMessages((previous) => [
@@ -418,19 +663,26 @@ export function ChatTab() {
         setTextInput('');
 
         try {
-            const suggestion = await analyzeSmartTextRequest({
+            const suggestions = await analyzeSmartTextMultiRequest({
                 text: normalized,
                 walletId: selectedWalletId || undefined,
                 fallbackTimestamp: Date.now(),
             });
 
-            const resolvedCategoryId = resolveCategoryId({
-                categoryId: suggestion.categoryId,
-                categoryName: suggestion.categoryName,
-                type: suggestion.type,
-            });
+            const actionable = suggestions
+                .map((suggestion) => {
+                    const resolvedCategoryId = resolveCategoryId({
+                        categoryId: suggestion.categoryId,
+                        categoryName: suggestion.categoryName,
+                        type: suggestion.type,
+                    });
+                    return { suggestion, resolvedCategoryId };
+                })
+                .filter(({ suggestion, resolvedCategoryId }) =>
+                    isSuggestionActionable(suggestion, resolvedCategoryId),
+                );
 
-            if (!isSuggestionActionable(suggestion, resolvedCategoryId)) {
+            if (actionable.length === 0) {
                 setMessages((previous) => [
                     ...previous,
                     {
@@ -443,17 +695,31 @@ export function ChatTab() {
                 return;
             }
 
-            appendSuggestionMessage({
-                walletId: selectedWalletId || wallets[0]?.id || '',
-                categoryId: resolvedCategoryId,
-                amount: suggestion.amount,
-                timestamp: suggestion.timestamp,
-                type: suggestion.type,
-                description: suggestion.description,
-                merchant: suggestion.merchant,
-                confidence: suggestion.confidence,
-                warnings: suggestion.warnings,
+            const now = Date.now();
+            const newMessages = actionable.map(({ suggestion, resolvedCategoryId }, index) => {
+                const draft = buildDraftFromSuggestion({
+                    walletId: selectedWalletId || wallets[0]?.id || '',
+                    categoryId: resolvedCategoryId,
+                    amount: suggestion.amount,
+                    timestamp: suggestion.timestamp,
+                    type: suggestion.type,
+                    description: suggestion.description,
+                    merchant: suggestion.merchant,
+                    confidence: suggestion.confidence,
+                    warnings: normalizeAiWarnings(suggestion.warnings),
+                });
+
+                return {
+                    id: `assistant-${now}-${index}-${Math.random().toString(36).slice(2)}`,
+                    role: 'assistant' as const,
+                    text: actionable.length > 1
+                        ? `Giao dịch ${index + 1}/${actionable.length} — kiểm tra và xác nhận nhé.`
+                        : 'Mình đã phân tích xong. Kiểm tra và xác nhận nhanh bên dưới.',
+                    transactionDraft: draft,
+                };
             });
+
+            setMessages((previous) => [...previous, ...newMessages]);
         } catch (error) {
             setMessages((previous) => [
                 ...previous,
@@ -691,6 +957,218 @@ export function ChatTab() {
                 error: rawMessage,
             }));
         }
+    };
+
+    const runInsightAnalysis = async (params: {
+        analysisType: TypeAiMonthlyAnalysis;
+        periodType: TypeAiInsightPeriod;
+        userText: string;
+        referenceTimestamp?: number;
+    }) => {
+        if (isBusy) return;
+
+        setIsBusy(true);
+        setTopError('');
+        shouldAutoScrollRef.current = true;
+
+        setMessages((previous) => [
+            ...previous,
+            {
+                id: `user-insight-${Date.now()}`,
+                role: 'user',
+                text: params.userText,
+            },
+        ]);
+
+        try {
+            const insight = await analyzeMonthlyInsightsRequest({
+                analysisType: params.analysisType,
+                periodType: params.periodType,
+                referenceTimestamp: params.referenceTimestamp || Date.now(),
+                userQuery: params.userText,
+            });
+
+            setMessages((previous) => [
+                ...previous,
+                {
+                    id: `assistant-insight-${Date.now()}`,
+                    role: 'assistant',
+                    text: '',
+                    monthlyInsight: insight,
+                },
+            ]);
+        } catch (error) {
+            setMessages((previous) => [
+                ...previous,
+                {
+                    id: `assistant-insight-error-${Date.now()}`,
+                    role: 'assistant',
+                    text:
+                        (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+                        || 'Mình chưa phân tích được báo cáo lúc này. Bạn thử lại sau nhé.',
+                },
+            ]);
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    const handleQuickMonthlyInsight = async (analysisType: TypeAiMonthlyAnalysis) => {
+        const userText =
+            analysisType === 'wasteful-top'
+                ? 'Liệt kê chi tiêu bất thường tháng này'
+                : 'Phân tích chi tiêu tháng này';
+
+        await runInsightAnalysis({
+            analysisType,
+            periodType: 'month',
+            userText,
+        });
+    };
+
+    const renderInsightCard = (insight: IAiMonthlyInsightResult) => {
+        const isWastefulMode = insight.analysisType === 'wasteful-top';
+
+        return (
+            <div
+                style={{
+                    marginTop: 8,
+                    border: '1px solid var(--surface-border)',
+                    borderRadius: 10,
+                    background: 'var(--surface-base)',
+                    padding: 9,
+                    display: 'grid',
+                    gap: 9,
+                }}
+            >
+                {/* Header */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' }}>
+                    <div style={{ fontWeight: 800, fontSize: 12.2 }}>
+                        {isWastefulMode ? 'Phân tích giao dịch bất thường' : 'Phân tích chi tiêu'}
+                    </div>
+                    <div style={{ fontSize: 10.8, color: 'var(--muted)' }}>
+                        {insight.periodLabel || formatMonthYearLabel(insight.month, insight.year)}
+                    </div>
+                </div>
+
+                {/* Summary text */}
+                <div style={{
+                    fontSize: 11.5,
+                    lineHeight: 1.5,
+                    color: 'var(--foreground)',
+                    borderRadius: 8,
+                    background: 'var(--surface-soft)',
+                    padding: '7px 9px',
+                    borderLeft: '3px solid var(--chip-border)',
+                }}>
+                    {insight.summary}
+                </div>
+
+                {/* Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 7 }}>
+                    <div style={{ borderRadius: 8, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '6px 7px' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Giao dịch</div>
+                        <div style={{ marginTop: 2, fontSize: 12.8, fontWeight: 800 }}>{insight.totalTransactions}</div>
+                    </div>
+                    <div style={{ borderRadius: 8, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '6px 7px' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Thu</div>
+                        <div style={{ marginTop: 2, fontSize: 12.2, fontWeight: 800, color: '#16a34a' }}>{formatCurrencyVND(insight.totalIncome)}</div>
+                    </div>
+                    <div style={{ borderRadius: 8, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '6px 7px' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Chi</div>
+                        <div style={{ marginTop: 2, fontSize: 12.2, fontWeight: 800, color: '#f97316' }}>{formatCurrencyVND(insight.totalExpense)}</div>
+                    </div>
+                </div>
+
+                {/* Highlights */}
+                {insight.highlights.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 3 }}>
+                        <div style={{ fontSize: 10.8, fontWeight: 800, color: 'var(--muted)', marginBottom: 2 }}>Nhận định chính</div>
+                        {insight.highlights.map((line, index) => (
+                            <div key={`hl-${index}`} style={{ fontSize: 11.2, lineHeight: 1.45 }}>
+                                • {line}
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+
+                {/* Strengths */}
+                {!isWastefulMode && insight.strengths && insight.strengths.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 3 }}>
+                        <div style={{ fontSize: 10.8, fontWeight: 800, color: '#16a34a', marginBottom: 2 }}>✅ Ưu điểm</div>
+                        {insight.strengths.map((line, index) => (
+                            <div key={`str-${index}`} style={{ fontSize: 11.2, lineHeight: 1.45, color: 'var(--foreground)' }}>
+                                • {line}
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+
+                {/* Weaknesses */}
+                {!isWastefulMode && insight.weaknesses && insight.weaknesses.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 3 }}>
+                        <div style={{ fontSize: 10.8, fontWeight: 800, color: '#f97316', marginBottom: 2 }}>⚠️ Nhược điểm</div>
+                        {insight.weaknesses.map((line, index) => (
+                            <div key={`wk-${index}`} style={{ fontSize: 11.2, lineHeight: 1.45, color: 'var(--foreground)' }}>
+                                • {line}
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+
+                {/* Improvements */}
+                {!isWastefulMode && insight.improvements && insight.improvements.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 3 }}>
+                        <div style={{ fontSize: 10.8, fontWeight: 800, color: '#6366f1', marginBottom: 2 }}>💡 Cần cải thiện</div>
+                        {insight.improvements.map((line, index) => (
+                            <div key={`imp-${index}`} style={{ fontSize: 11.2, lineHeight: 1.45, color: 'var(--foreground)' }}>
+                                • {line}
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+
+                {/* Top wasteful */}
+                {insight.topWasteful.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ fontSize: 10.8, fontWeight: 800, color: 'var(--muted)' }}>
+                            {isWastefulMode ? 'Giao dịch cần xem lại' : 'Đáng chú ý'}
+                        </div>
+                        {insight.topWasteful.map((item) => (
+                            <div
+                                key={`${item.transactionId}-${item.timestamp}`}
+                                style={{
+                                    borderRadius: 8,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-soft)',
+                                    padding: '7px 8px',
+                                    display: 'grid',
+                                    gap: 3,
+                                }}
+                            >
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' }}>
+                                    <div style={{ fontSize: 11.4, fontWeight: 700 }}>
+                                        {item.description || item.categoryName}
+                                    </div>
+                                    <div style={{ fontSize: 11.2, fontWeight: 800, color: '#f97316' }}>
+                                        {formatCurrencyVND(item.amount)}
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: 10.6, color: 'var(--muted)', lineHeight: 1.35 }}>
+                                    {item.reason}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+
+                {insight.warnings.length > 0 ? (
+                    <div style={{ fontSize: 10.8, color: '#f59e0b', lineHeight: 1.35 }}>
+                        {insight.warnings.join(' ')}
+                    </div>
+                ) : null}
+            </div>
+        );
     };
 
     const renderDraftCard = (messageId: string, draft: ITransactionDraft) => {
@@ -1198,6 +1676,10 @@ export function ChatTab() {
                         {message.transactionDraft
                             ? renderDraftCard(message.id, message.transactionDraft)
                             : null}
+
+                        {message.monthlyInsight
+                            ? renderInsightCard(message.monthlyInsight)
+                            : null}
                     </div>
                 ))}
 
@@ -1218,7 +1700,7 @@ export function ChatTab() {
                         }}
                     >
                         <LoaderCircle size={14} className="spin" />
-                        Trợ lý của anh Pô đang phân tích...
+                        Trợ lý Pô con đang phân tích...
                     </div>
                 ) : null}
             </div>
@@ -1285,7 +1767,48 @@ export function ChatTab() {
                 </div>
             ) : null}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => void handleQuickMonthlyInsight('spending-overview')}
+                    style={{
+                        borderRadius: 999,
+                        border: '1px solid var(--surface-border)',
+                        background: 'var(--surface-soft)',
+                        color: 'var(--foreground)',
+                        padding: '7px 11px',
+                        fontSize: 11.3,
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        opacity: isBusy ? 0.7 : 1,
+                    }}
+                >
+                    <BarChart3 size={13} />
+                    Phân tích chi tiêu tháng này
+                </button>
+                <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => void handleQuickMonthlyInsight('wasteful-top')}
+                    style={{
+                        borderRadius: 999,
+                        border: '1px solid var(--surface-border)',
+                        background: 'var(--surface-soft)',
+                        color: 'var(--foreground)',
+                        padding: '7px 11px',
+                        fontSize: 11.3,
+                        fontWeight: 700,
+                        opacity: isBusy ? 0.7 : 1,
+                    }}
+                >
+                    Top giao dịch "bất thường"
+                </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto auto 1fr auto', gap: 8, alignItems: 'center' }}>
                 <label
                     style={{
                         width: 38,
@@ -1311,6 +1834,32 @@ export function ChatTab() {
                         }}
                     />
                 </label>
+
+                <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => {
+                        if (isVoiceListening) {
+                            stopVoiceListening();
+                        } else {
+                            void startVoiceListening();
+                        }
+                    }}
+                    style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 10,
+                        border: isVoiceListening ? '1px solid color-mix(in srgb, #ef4444 60%, var(--surface-border))' : '1px solid var(--surface-border)',
+                        background: isVoiceListening ? 'color-mix(in srgb, #ef4444 15%, var(--surface-soft))' : 'var(--surface-soft)',
+                        color: isVoiceListening ? '#ef4444' : 'var(--foreground)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        opacity: isBusy ? 0.7 : 1,
+                    }}
+                    title={isVoiceListening ? 'Dừng ghi âm' : 'Voice chat'}
+                >
+                    {isVoiceListening ? <Square size={14} /> : <Mic size={16} />}
+                </button>
 
                 <input
                     value={textInput}
@@ -1347,6 +1896,41 @@ export function ChatTab() {
                     <Send size={14} />
                 </PrimaryButton>
             </div>
+
+            {isVoiceListening ? (
+                <div
+                    style={{
+                        borderRadius: 10,
+                        border: '1px solid var(--surface-border)',
+                        background: 'var(--surface-soft)',
+                        padding: '8px 10px',
+                        display: 'grid',
+                        gap: 6,
+                    }}
+                >
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                        Đang lắng nghe giọng nói...
+                    </div>
+                    <div
+                        style={{
+                            height: 6,
+                            borderRadius: 999,
+                            background: 'color-mix(in srgb, var(--surface-border) 45%, transparent)',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div
+                            style={{
+                                width: `${Math.max(6, Math.round(voiceLevel * 100))}%`,
+                                height: '100%',
+                                borderRadius: 999,
+                                background: 'linear-gradient(90deg, #22c55e, #06b6d4)',
+                                transition: 'width 80ms linear',
+                            }}
+                        />
+                    </div>
+                </div>
+            ) : null}
 
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 Nhớ kiểm tra kỹ trước khi tạo giao dịch nhé, nếu sai sót mong bạn thông cảm.

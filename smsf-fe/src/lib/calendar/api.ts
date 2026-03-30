@@ -10,7 +10,12 @@ import {
     IWalletItem,
     IWalletSummary,
 } from '@/types/calendar';
-import { IAiTransactionSuggestion } from '@/types/ai';
+import {
+    IAiMonthlyInsightResult,
+    TypeAiInsightPeriod,
+    IAiTransactionSuggestion,
+    TypeAiMonthlyAnalysis,
+} from '@/types/ai';
 import {
     IBudgetJarItem,
     IBudgetJarPreset,
@@ -51,6 +56,10 @@ interface ICategoryApiItem {
 
 interface IAiAnalyzeResponse {
     suggestion: IAiTransactionSuggestion;
+}
+
+interface IAiMonthlyInsightResponse {
+    insight: IAiMonthlyInsightResult;
 }
 
 const toCalendarTransaction = (
@@ -305,6 +314,19 @@ export async function analyzeSmartTextRequest(payload: {
     return response.data.data.suggestion;
 }
 
+export async function analyzeSmartTextMultiRequest(payload: {
+    text: string;
+    walletId?: string;
+    fallbackTimestamp?: number;
+}): Promise<IAiTransactionSuggestion[]> {
+    const response = await api.post<IApiResponse<{ suggestions: IAiTransactionSuggestion[] }>>(
+        '/ai/parse-text-multi',
+        payload,
+    );
+
+    return response.data.data.suggestions;
+}
+
 export async function analyzeSmartReceiptRequest(payload: {
     imageBase64: string;
     mimeType: string;
@@ -317,4 +339,20 @@ export async function analyzeSmartReceiptRequest(payload: {
     );
 
     return response.data.data.suggestion;
+}
+
+export async function analyzeMonthlyInsightsRequest(payload: {
+    analysisType: TypeAiMonthlyAnalysis;
+    periodType?: TypeAiInsightPeriod;
+    referenceTimestamp?: number;
+    userQuery?: string;
+    month?: number;
+    year?: number;
+}): Promise<IAiMonthlyInsightResult> {
+    const response = await api.post<IApiResponse<IAiMonthlyInsightResponse>>(
+        '/ai/monthly-insights',
+        payload,
+    );
+
+    return response.data.data.insight;
 }

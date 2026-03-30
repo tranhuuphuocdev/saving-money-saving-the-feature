@@ -17,6 +17,8 @@ type GeminiPart = IGeminiTextPart | IGeminiImagePart;
 
 interface IGenerateContentPayload {
     parts: GeminiPart[];
+    responseSchema?: Record<string, unknown>;
+    maxOutputTokens?: number;
 }
 
 const extractResponseText = (responseJson: unknown): string => {
@@ -44,6 +46,18 @@ const callGeminiGenerateContent = async (
     const timeout = setTimeout(() => controller.abort(), config.gemini.timeoutMs);
 
     try {
+        const generationConfig: Record<string, unknown> = {
+            responseMimeType: "application/json",
+            temperature: 0.2,
+            topK: 20,
+            topP: 0.8,
+            maxOutputTokens: Number(payload.maxOutputTokens) || 1024,
+        };
+
+        if (payload.responseSchema && typeof payload.responseSchema === "object") {
+            generationConfig.responseSchema = payload.responseSchema;
+        }
+
         const response = await fetch(endpoint, {
             method: "POST",
             signal: controller.signal,
@@ -57,13 +71,7 @@ const callGeminiGenerateContent = async (
                         parts: payload.parts,
                     },
                 ],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    temperature: 0.2,
-                    topK: 20,
-                    topP: 0.8,
-                    maxOutputTokens: 1024,
-                },
+                generationConfig,
             }),
         });
 
