@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getProfileRequest, loginRequest, loginWithGoogleRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest } from '@/lib/auth/api';
+import { getProfileRequest, loginRequest, loginWithGoogleRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest, uploadProfileAvatarRequest } from '@/lib/auth/api';
 import { createWalletRequest, getWalletsRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
 import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
@@ -113,6 +113,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(profile);
     }, []);
 
+    const uploadAvatar = useCallback(async (file: File) => {
+        const profile = await uploadProfileAvatarRequest(file);
+        setSession(profile);
+        setUser(profile);
+    }, []);
+
     const createWallet = useCallback(async (payload: { name: string; type?: string; balance?: number }) => {
         await createWalletRequest(payload);
         await refreshWalletsSafely();
@@ -142,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             register,
             createWallet,
             updateTelegramChatId,
+            uploadAvatar,
             logout,
             refreshProfile,
             refreshWallets,
@@ -154,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             register,
             createWallet,
             updateTelegramChatId,
+            uploadAvatar,
             logout,
             refreshProfile,
             refreshWallets,

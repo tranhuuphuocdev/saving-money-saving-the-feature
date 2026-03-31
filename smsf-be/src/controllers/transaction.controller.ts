@@ -51,6 +51,7 @@ const parseTransactionQuery = (query: Request["query"]): {
     page: number;
     limit: number;
     category?: string;
+    categories?: string[];
     description?: string;
     startTime?: number;
     endTime?: number;
@@ -60,6 +61,16 @@ const parseTransactionQuery = (query: Request["query"]): {
     const limitRaw = query.limit;
     const category = String(query.category || "").trim() || undefined;
     const description = String(query.description || "").trim() || undefined;
+
+    const categoriesRaw = query.categories;
+    let categories: string[] | undefined;
+    if (categoriesRaw) {
+        const raw = Array.isArray(categoriesRaw)
+            ? categoriesRaw.map((c) => String(c).trim())
+            : String(categoriesRaw).split(",").map((c) => c.trim());
+        const filtered = raw.filter(Boolean);
+        if (filtered.length > 0) categories = filtered;
+    }
 
     const page = pageRaw ? Number(pageRaw) : 1;
     const limit = limitRaw ? Number(limitRaw) : 20;
@@ -103,6 +114,7 @@ const parseTransactionQuery = (query: Request["query"]): {
         page,
         limit,
         category,
+        categories,
         description,
         startTime,
         endTime,

@@ -111,10 +111,19 @@ export async function getTransactionsByMonthRequest(
 export async function queryTransactionsRequest(
     params: ITransactionQueryParams,
 ): Promise<ITransactionQueryResult> {
-    const requestParams = {
-        ...params,
-        category: params.categoryId,
+    const requestParams: Record<string, unknown> = {
+        page: params.page,
+        limit: params.limit,
+        description: params.description,
+        startTime: params.startTime,
+        endTime: params.endTime,
     };
+
+    if (params.categoryIds && params.categoryIds.length > 0) {
+        requestParams.categories = params.categoryIds.join(',');
+    } else if (params.categoryId) {
+        requestParams.category = params.categoryId;
+    }
 
     const response = await api.get<IApiResponse<ITransactionQueryResponse>>(
         '/transactions/query',
@@ -382,4 +391,36 @@ export async function analyzeMonthlyInsightsRequest(payload: {
     );
 
     return response.data.data.insight;
+}
+
+export interface IWalletLogItem {
+    id: string;
+    walletId: string;
+    transactionId?: string;
+    action: string;
+    amount: number;
+    balanceBefore: number;
+    balanceAfter: number;
+    description?: string;
+    createdAt: number;
+}
+
+export interface IWalletLogPage {
+    items: IWalletLogItem[];
+    page: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+}
+
+export async function getWalletLogsRequest(
+    walletId: string,
+    page = 1,
+    limit = 20,
+): Promise<IWalletLogPage> {
+    const response = await api.get<IApiResponse<IWalletLogPage>>(
+        `/wallets/${walletId}/logs`,
+        { params: { page, limit } },
+    );
+    return response.data.data;
 }

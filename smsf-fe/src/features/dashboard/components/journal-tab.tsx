@@ -8,6 +8,7 @@ import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomDatePicker } from '@/components/common/custom-date-picker';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
+import { UserAvatar } from '@/components/common/user-avatar';
 import {
     analyzeMonthlyInsightsRequest,
     analyzeSmartReceiptRequest,
@@ -134,6 +135,7 @@ const CHAT_SWIPE_SNAP_TO_EDIT =
     + CHAT_ACTION_GAP
     + CHAT_ACTION_BUTTON_WIDTH
     + CHAT_ACTION_TRAILING_PADDING;
+const AI_CHAT_AVATAR = '/avatars/avt-po-con.webp';
 
 const TRANSACTION_INTENT_PATTERN = /(\d|k\b|tr\b|triệu|nghìn|ngan|đ\b|vnd|chi|thu|mua|trả|lương|xăng|đi chợ|hoa don|hoá đơn|bill)/i;
 const ANALYSIS_INTENT_PATTERN = /(phân tích|phan tich|phân thích|phan thich|nhận định|nhan dinh|liệt kê|liet ke|bất thường|bat thuong|chi tiêu|chi tieu)/i;
@@ -254,7 +256,7 @@ const buildDraftFromSuggestion = (params: {
 };
 
 export function ChatTab() {
-    const { refreshWallets } = useAuth();
+    const { refreshWallets, user } = useAuth();
     const [messages, setMessages] = useState<IChatMessage[]>([
         {
             id: `assistant-${Date.now()}`,
@@ -1853,47 +1855,78 @@ export function ChatTab() {
                         style={{
                             alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
                             maxWidth: 'min(92%, 620px)',
-                            borderRadius: message.compact ? 10 : 12,
-                            border: message.role === 'assistant' ? '1px solid color-mix(in srgb, var(--theme-gradient-start) 22%, var(--surface-border))' : 'none',
-                            background:
-                                message.role === 'assistant'
-                                    ? 'linear-gradient(135deg, color-mix(in srgb, var(--surface-strong) 80%, #ffffff), var(--surface-strong))'
-                                    : 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 42%, var(--chip-bg)), color-mix(in srgb, var(--theme-gradient-end) 42%, var(--chip-bg)))',
-                            color: message.role === 'assistant' ? 'var(--foreground)' : 'var(--theme-nav-active)',
-                            padding: message.compact ? '7px 10px' : '10px 12px',
-                            boxShadow:
-                                message.role === 'assistant'
-                                    ? '0 8px 20px rgba(15, 23, 42, 0.08)'
-                                    : '0 12px 24px color-mix(in srgb, var(--theme-gradient-start) 25%, transparent)',
+                            position: 'relative',
+                            paddingLeft: message.role === 'assistant' ? 12 : 0,
+                            paddingRight: message.role === 'user' ? 12 : 0,
                         }}
                     >
-                        {message.text ? (
-                            <div style={{ fontSize: message.compact ? 11.4 : 11.4, lineHeight: message.compact ? 1.35 : 1.45 }}>
-                                {message.text}
-                            </div>
-                        ) : null}
+                        <div
+                            style={{
+                                borderRadius: message.compact ? 10 : 12,
+                                border: message.role === 'assistant' ? '1px solid color-mix(in srgb, var(--theme-gradient-start) 22%, var(--surface-border))' : 'none',
+                                background:
+                                    message.role === 'assistant'
+                                        ? 'linear-gradient(135deg, color-mix(in srgb, var(--surface-strong) 80%, #ffffff), var(--surface-strong))'
+                                        : 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 42%, var(--chip-bg)), color-mix(in srgb, var(--theme-gradient-end) 42%, var(--chip-bg)))',
+                                color: message.role === 'assistant' ? 'var(--foreground)' : 'var(--theme-nav-active)',
+                                padding: message.compact ? '7px 10px' : '10px 12px',
+                                boxShadow:
+                                    message.role === 'assistant'
+                                        ? '0 8px 20px rgba(15, 23, 42, 0.08)'
+                                        : '0 12px 24px color-mix(in srgb, var(--theme-gradient-start) 25%, transparent)',
+                            }}
+                        >
+                            {message.text ? (
+                                <div style={{ fontSize: message.compact ? 11.4 : 11.4, lineHeight: message.compact ? 1.35 : 1.45 }}>
+                                    {message.text}
+                                </div>
+                            ) : null}
 
-                        {message.imageUrl ? (
-                            <img
-                                src={message.imageUrl}
-                                alt="receipt"
-                                style={{
-                                    display: 'block',
-                                    marginTop: 8,
-                                    borderRadius: 8,
-                                    width: 'min(260px, 100%)',
-                                    objectFit: 'cover',
-                                }}
-                            />
-                        ) : null}
+                            {message.imageUrl ? (
+                                <img
+                                    src={message.imageUrl}
+                                    alt="receipt"
+                                    style={{
+                                        display: 'block',
+                                        marginTop: 8,
+                                        borderRadius: 8,
+                                        width: 'min(260px, 100%)',
+                                        objectFit: 'cover',
+                                    }}
+                                />
+                            ) : null}
 
-                        {message.transactionDraft
-                            ? renderDraftCard(message.id, message.transactionDraft)
-                            : null}
+                            {message.transactionDraft
+                                ? renderDraftCard(message.id, message.transactionDraft)
+                                : null}
 
-                        {message.monthlyInsight
-                            ? renderInsightCard(message.monthlyInsight)
-                            : null}
+                            {message.monthlyInsight
+                                ? renderInsightCard(message.monthlyInsight)
+                                : null}
+                        </div>
+
+                        <UserAvatar
+                            src={message.role === 'assistant' ? AI_CHAT_AVATAR : user?.avatarUrl}
+                            alt={message.role === 'assistant' ? 'AI assistant avatar' : user?.displayName || user?.username || 'User avatar'}
+                            size={26}
+                            radius="50%"
+                            style={{
+                                position: 'absolute',
+                                bottom: -10,
+                                left: message.role === 'assistant' ? -10 : 'auto',
+                                right: message.role === 'user' ? -10 : 'auto',
+                                border: message.role === 'assistant'
+                                    ? '2px solid color-mix(in srgb, var(--theme-gradient-end) 58%, #ffffff)'
+                                    : '2px solid color-mix(in srgb, var(--theme-gradient-start) 62%, #ffffff)',
+                                boxShadow: message.role === 'assistant'
+                                    ? '0 10px 20px rgba(14, 165, 233, 0.22), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)'
+                                    : '0 10px 20px rgba(37, 99, 235, 0.26), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)',
+                                background: message.role === 'assistant'
+                                    ? 'linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(15, 23, 42, 0.95))'
+                                    : 'linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(15, 23, 42, 0.95))',
+                                zIndex: 2,
+                            }}
+                        />
                     </div>
                 ))}
 
@@ -1902,19 +1935,41 @@ export function ChatTab() {
                         className="chat-busy-pulse"
                         style={{
                             alignSelf: 'flex-start',
-                            borderRadius: 12,
-                            border: '1px solid var(--surface-border)',
-                            background: 'var(--surface-strong)',
-                            color: 'var(--foreground)',
-                            padding: '8px 10px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            fontSize: 12,
+                            position: 'relative',
+                            paddingLeft: 12,
                         }}
                     >
-                        <LoaderCircle size={14} className="spin" />
-                        Trợ lý Pô con đang phân tích...
+                        <div
+                            style={{
+                                borderRadius: 12,
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-strong)',
+                                color: 'var(--foreground)',
+                                padding: '8px 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                fontSize: 12,
+                            }}
+                        >
+                            <LoaderCircle size={14} className="spin" />
+                            Trợ lý Pô con đang phân tích...
+                        </div>
+                        <UserAvatar
+                            src={AI_CHAT_AVATAR}
+                            alt="AI assistant avatar"
+                            size={26}
+                            radius="50%"
+                            style={{
+                                position: 'absolute',
+                                left: -10,
+                                bottom: -10,
+                                border: '2px solid color-mix(in srgb, var(--theme-gradient-end) 58%, #ffffff)',
+                                boxShadow: '0 10px 20px rgba(14, 165, 233, 0.22), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)',
+                                background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(15, 23, 42, 0.95))',
+                                zIndex: 2,
+                            }}
+                        />
                     </div>
                 ) : null}
             </div>

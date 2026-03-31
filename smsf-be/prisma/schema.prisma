@@ -10,6 +10,7 @@ datasource db {
 model User {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("u_id")
   displayName  String?  @map("dn")
+  avatarUrl    String?  @map("avatar_url")
   username     String   @unique
   email        String?  @map("email")
   authProvider String   @default("local") @map("auth_provider")
@@ -61,6 +62,7 @@ model Wallet {
 
   user         User          @relation(fields: [userId], references: [id])
   transactions Transaction[]
+  walletLogs   WalletLog[]
 
   @@map("wallets")
 }
@@ -151,4 +153,20 @@ model Notification {
   category Category @relation(fields: [categoryId], references: [id])
 
   @@map("notifications")
+}
+
+model WalletLog {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("wl_id")
+  walletId      String   @map("w_id")
+  transactionId String?  @map("txn_id")
+  action        String   @map("wl_action")
+  amount        Decimal  @default(0) @db.Decimal(18, 2) @map("wl_amount")
+  balanceBefore Decimal  @default(0) @db.Decimal(18, 2) @map("wl_balance_before")
+  balanceAfter  Decimal  @default(0) @db.Decimal(18, 2) @map("wl_balance_after")
+  description   String?  @map("wl_desc")
+  createdAt     BigInt   @map("created_at")
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@map("wallet_logs")
 }

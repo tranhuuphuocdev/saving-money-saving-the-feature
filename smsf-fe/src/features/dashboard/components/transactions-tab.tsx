@@ -1,12 +1,11 @@
 'use client';
 
 import { FormEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, LoaderCircle, Pencil, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Check, ChevronDown, LoaderCircle, Pencil, Trash2, TriangleAlert, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
 import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomDatePicker } from '@/components/common/custom-date-picker';
-import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import {
     deleteTransactionRequest,
@@ -79,7 +78,11 @@ const matchTransactionWithFilters = (
     transaction: ICalendarTransaction,
     filter: Omit<ITransactionQueryParams, 'page' | 'limit'>,
 ): boolean => {
-    if (filter.categoryId && transaction.category !== filter.categoryId) {
+    if (filter.categoryIds && filter.categoryIds.length > 0) {
+        if (!filter.categoryIds.includes(transaction.category)) {
+            return false;
+        }
+    } else if (filter.categoryId && transaction.category !== filter.categoryId) {
         return false;
     }
 
@@ -135,7 +138,9 @@ export function TransactionsTab() {
         hasMoved: boolean;
     } | null>(null);
 
-    const [categoryInput, setCategoryInput] = useState('');
+    const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+    const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
+    const [pendingCategoryIds, setPendingCategoryIds] = useState<string[]>([]);
     const [descriptionInput, setDescriptionInput] = useState('');
     const [startDateInput, setStartDateInput] = useState('');
     const [endDateInput, setEndDateInput] = useState('');
@@ -232,7 +237,7 @@ export function TransactionsTab() {
         setTopMessage('');
 
         setFilters({
-            categoryId: categoryInput || undefined,
+            categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
             description: descriptionInput.trim() || undefined,
             startTime: toStartOfDayTimestamp(startDateInput),
             endTime: toEndOfDayTimestamp(endDateInput),
@@ -240,7 +245,7 @@ export function TransactionsTab() {
     };
 
     const handleResetFilters = () => {
-        setCategoryInput('');
+        setSelectedCategoryIds([]);
         setDescriptionInput('');
         setStartDateInput('');
         setEndDateInput('');
@@ -429,18 +434,70 @@ export function TransactionsTab() {
                 <form onSubmit={handleApplyFilters} style={{ display: 'grid', gap: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 800 }}>Bộ lọc giao dịch</div>
 
-                    <CustomSelect
-                        value={categoryInput}
-                        onChange={setCategoryInput}
-                        placeholder="Tất cả danh mục"
-                        options={[
-                            { value: '', label: 'Tất cả danh mục' },
-                            ...categories.map((category) => ({
-                                value: category.id,
-                                label: category.name,
-                            })),
-                        ]}
-                    />
+                    {/* Category multi-select trigger */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setPendingCategoryIds(selectedCategoryIds);
+                            setIsCategoryPickerOpen(true);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: selectedCategoryIds.length > 0 ? '1.5px solid var(--chip-border)' : '1px solid var(--surface-border)',
+                            background: selectedCategoryIds.length > 0 ? 'var(--chip-bg)' : 'var(--surface-soft)',
+                            color: 'var(--foreground)',
+                            fontSize: 13,
+                            textAlign: 'left',
+                        }}
+                    >
+                        <span style={{ fontWeight: selectedCategoryIds.length > 0 ? 700 : 400 }}>
+                            {selectedCategoryIds.length === 0
+                                ? 'Tất cả danh mục'
+                                : `${selectedCategoryIds.length} danh mục đã chọn`}
+                        </span>
+                        <ChevronDown size={15} style={{ flexShrink: 0, color: 'var(--muted)' }} />
+                    </button>
+
+                    {/* Selected category tags */}
+                    {selectedCategoryIds.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {selectedCategoryIds.map((id) => {
+                                const cat = categories.find((c) => c.id === id);
+                                if (!cat) return null;
+                                return (
+                                    <div
+                                        key={id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            padding: '4px 8px',
+                                            borderRadius: 8,
+                                            background: 'var(--chip-bg)',
+                                            border: '1px solid var(--chip-border)',
+                                            fontSize: 12,
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        <span style={{ fontSize: 14, lineHeight: 1 }}>{cat.icon || '🧩'}</span>
+                                        <span>{cat.name}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedCategoryIds((prev) => prev.filter((x) => x !== id))}
+                                            style={{ border: 'none', background: 'transparent', color: 'var(--muted)', padding: 0, cursor: 'pointer', lineHeight: 1, display: 'grid', placeItems: 'center' }}
+                                        >
+                                            <X size={11} />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : null}
 
                     <input
                         type="text"
@@ -1080,6 +1137,161 @@ export function TransactionsTab() {
                                   </button>
                               </div>
                           </AppCard>
+                      </div>,
+                      document.body,
+                  )
+                : null}
+
+            {isCategoryPickerOpen
+                ? createPortal(
+                      <div
+                          onClick={(event) => {
+                              if (event.target === event.currentTarget) setIsCategoryPickerOpen(false);
+                          }}
+                          style={{
+                              position: 'fixed',
+                              inset: 0,
+                              zIndex: 1320,
+                              background: 'rgba(2, 8, 23, 0.45)',
+                              backdropFilter: 'blur(2px)',
+                              display: 'grid',
+                              alignItems: 'end',
+                          }}
+                      >
+                          <div
+                              style={{
+                                  width: 'min(100%, 620px)',
+                                  maxHeight: '76dvh',
+                                  margin: '0 auto',
+                                  borderRadius: '16px 16px 0 0',
+                                  border: '1px solid var(--surface-border)',
+                                  borderBottom: 'none',
+                                  background: 'var(--surface-base)',
+                                  overflow: 'hidden',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                              }}
+                          >
+                              <div style={{ padding: '12px 12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                                  <div style={{ fontWeight: 900, fontSize: 13.5 }}>Chọn danh mục</div>
+                                  <button
+                                      type="button"
+                                      onClick={() => setIsCategoryPickerOpen(false)}
+                                      style={{
+                                          width: 30,
+                                          height: 30,
+                                          borderRadius: 8,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'transparent',
+                                          color: 'var(--muted)',
+                                          display: 'grid',
+                                          placeItems: 'center',
+                                      }}
+                                  >
+                                      <X size={14} />
+                                  </button>
+                              </div>
+
+                              <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
+                                  <div
+                                      style={{
+                                          display: 'grid',
+                                          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                                          gap: 8,
+                                      }}
+                                  >
+                                      {categories.map((cat) => {
+                                          const selected = pendingCategoryIds.includes(cat.id);
+                                          return (
+                                              <button
+                                                  key={cat.id}
+                                                  type="button"
+                                                  onClick={() =>
+                                                      setPendingCategoryIds((prev) =>
+                                                          selected ? prev.filter((id) => id !== cat.id) : [...prev, cat.id],
+                                                      )
+                                                  }
+                                                  style={{
+                                                      minHeight: 52,
+                                                      borderRadius: 10,
+                                                      border: selected
+                                                          ? '1.5px solid var(--chip-border)'
+                                                          : '1px solid var(--surface-border)',
+                                                      background: selected ? 'var(--chip-bg)' : 'var(--surface-soft)',
+                                                      color: 'var(--foreground)',
+                                                      fontSize: 'clamp(10px, 2.4vw, 11.5px)',
+                                                      fontWeight: selected ? 700 : 500,
+                                                      padding: '6px 4px',
+                                                      textAlign: 'center',
+                                                      lineHeight: 1.25,
+                                                      wordBreak: 'break-word',
+                                                      display: 'grid',
+                                                      gap: 3,
+                                                      placeItems: 'center',
+                                                      position: 'relative',
+                                                  }}
+                                              >
+                                                  {selected ? (
+                                                      <div
+                                                          style={{
+                                                              position: 'absolute',
+                                                              top: 3,
+                                                              right: 3,
+                                                              width: 14,
+                                                              height: 14,
+                                                              borderRadius: 999,
+                                                              background: 'var(--accent)',
+                                                              display: 'grid',
+                                                              placeItems: 'center',
+                                                          }}
+                                                      >
+                                                          <Check size={9} color="white" />
+                                                      </div>
+                                                  ) : null}
+                                                  <span style={{ fontSize: 16, lineHeight: 1 }}>{cat.icon || '🧩'}</span>
+                                                  <span>{cat.name}</span>
+                                              </button>
+                                          );
+                                      })}
+                                  </div>
+                              </div>
+
+                              <div style={{ padding: '10px 12px 12px', flexShrink: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, borderTop: '1px solid var(--surface-border)' }}>
+                                  <button
+                                      type="button"
+                                      onClick={() => setPendingCategoryIds([])}
+                                      style={{
+                                          minHeight: 40,
+                                          borderRadius: 12,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'transparent',
+                                          color: 'var(--foreground)',
+                                          fontWeight: 700,
+                                          fontSize: 12,
+                                      }}
+                                  >
+                                      Bỏ chọn tất cả
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={() => {
+                                          setSelectedCategoryIds(pendingCategoryIds);
+                                          setIsCategoryPickerOpen(false);
+                                      }}
+                                      style={{
+                                          minHeight: 40,
+                                          borderRadius: 12,
+                                          border: '1px solid var(--theme-gradient-start)',
+                                          background: 'var(--chip-bg)',
+                                          color: 'var(--foreground)',
+                                          fontWeight: 800,
+                                          fontSize: 12,
+                                      }}
+                                  >
+                                      Áp dụng{pendingCategoryIds.length > 0 ? ` (${pendingCategoryIds.length})` : ''}
+                                  </button>
+                              </div>
+                          </div>
                       </div>,
                       document.body,
                   )

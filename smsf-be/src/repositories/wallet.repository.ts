@@ -1,4 +1,4 @@
-import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
+import { IWallet, IWalletLog, IWalletLogPage, IWalletSummary } from "../interfaces/transaction.interface";
 import { DbExecutor, prisma } from "../lib/prisma";
 
 const getExecutor = (executor?: DbExecutor) => executor || prisma;
@@ -173,4 +173,80 @@ export {
     upsertWallet,
     upsertWalletsBulk,
     getWalletSummaryByUserId,
+    createWalletLog,
+    getWalletLogsByWalletId,
+};
+
+const mapWalletLogRow = (row: {
+    id: string;
+    walletId: string;
+    transactionId: string | null;
+    action: string;
+    amount: unknown;
+    balanceBefore: unknown;
+    balanceAfter: unknown;
+    description: string | null;
+    createdAt: bigint;
+}): IWalletLog => ({
+    id: String(row.id),
+    walletId: String(row.walletId),
+    transactionId: row.transactionId ?? undefined,
+    action: String(row.action),
+    amount: Number(row.amount || 0),
+    balanceBefore: Number(row.balanceBefore || 0),
+    balanceAfter: Number(row.balanceAfter || 0),
+    description: row.description ?? undefined,
+    createdAt: Number(row.createdAt || 0n),
+});
+
+const createWalletLog = async (
+    data: Omit<IWalletLog, 'id'>,
+    executor?: DbExecutor,
+): Promise<void> => {
+    const db = getExecutor(executor);
+    await db.walletLog.create({
+        data: {
+            walletId: data.walletId,
+            transactionId: data.transactionId ?? null,
+            action: data.action,
+            amount: data.amount,
+            balanceBefore: data.balanceBefore,
+            balanceAfter: data.balanceAfter,
+            description: data.description ?? null,
+            createdAt: BigInt(data.createdAt),
+        },
+    });
+};
+
+const getWalletLogsByWalletId = async (
+    userId: string,
+    walletId: string,
+    page: number,
+    limit: number,
+): Promise<IWalletLogPage> => {
+    const wallet = await getWalletById(userId, walletId);
+    if (!wallet) {
+        const error = new Error("Wallet not found.");
+        (error as Error & { statusCode?: number }).statusCode = 404;
+        throw error;
+    }
+
+    const offset = (page - 1) * limit;
+    const [total, rows] = await Promise.all([
+        prisma.walletLog.count({ where: { walletId } }),
+        prisma.walletLog.findMany({
+            where: { walletId },
+            orderBy: { createdAt: "desc" },
+            take: limit,
+            skip: offset,
+        }),
+    ]);
+
+    return {
+        items: rows.map(mapWalletLogRow),
+        page,
+        limit,
+        total,
+        hasMore: offset + rows.length < total,
+    };
 };

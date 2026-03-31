@@ -81,6 +81,7 @@ export interface ITransactionQueryParams {
     page?: number;
     limit?: number;
     categoryId?: string;
+    categoryIds?: string[];
     description?: string;
     startTime?: number;
     endTime?: number;

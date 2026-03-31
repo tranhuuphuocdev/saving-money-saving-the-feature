@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 export interface IUserProfile {
     id: string;
     displayName: string;
+    avatarUrl?: string;
     username: string;
     role: string;
     telegramChatId?: string;
@@ -24,6 +25,7 @@ const findUserProfileById = async (userId: string): Promise<IUserProfile | undef
     return {
         id: String(row.id),
         displayName: String(row.displayName || row.username || row.id),
+        avatarUrl: row.avatarUrl ? String(row.avatarUrl) : undefined,
         username: String(row.username),
         role: String(row.role),
         telegramChatId: row.telegramChat ? String(row.telegramChat) : undefined,

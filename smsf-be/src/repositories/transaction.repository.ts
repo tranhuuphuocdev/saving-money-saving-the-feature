@@ -75,14 +75,16 @@ const queryTransactionsByUser = async (
     userId: string,
     queryParams: ITransactionQueryParams,
 ): Promise<IPaginatedTransactions> => {
-    const { category, description, startTime, endTime, page, limit } = queryParams;
+    const { category, categories, description, startTime, endTime, page, limit } = queryParams;
     const offset = (page - 1) * limit;
     const where: Prisma.TransactionWhereInput = {
         userId,
         isDeleted: false,
     };
 
-    if (category) {
+    if (categories && categories.length > 0) {
+        where.categoryId = { in: categories };
+    } else if (category) {
         where.categoryId = category;
     }
 

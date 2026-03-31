@@ -1,11 +1,9 @@
 import config from "./config";
 import { startNotificationCron, startNotificationTestCron } from "./jobs/notification.cron";
-import { startTracing } from "./lib/tracing";
 
 const PORT = config.port;
 
 async function bootstrap() {
-    await startTracing();
     const { default: app } = await import("./app");
 
     app.listen(PORT, () => {
@@ -16,7 +14,6 @@ async function bootstrap() {
     Server is running on port ${PORT}
     Environment: ${config.nodeEnv}
     http://localhost:${PORT}/api/health
-    Tracing: ${config.tracing.enabled ? "enabled" : "disabled"}
 ========================================
         `);
     });

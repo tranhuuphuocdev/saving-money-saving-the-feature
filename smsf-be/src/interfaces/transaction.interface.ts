@@ -52,11 +52,32 @@ export interface IUpdateTransactionPayload {
 
 export interface ITransactionQueryParams {
     category?: string;
+    categories?: string[];
     description?: string;
     startTime?: number;
     endTime?: number;
     page: number;
     limit: number;
+}
+
+export interface IWalletLog {
+    id: string;
+    walletId: string;
+    transactionId?: string;
+    action: string;
+    amount: number;
+    balanceBefore: number;
+    balanceAfter: number;
+    description?: string;
+    createdAt: number;
+}
+
+export interface IWalletLogPage {
+    items: IWalletLog[];
+    page: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
 }
 
 export interface IPaginatedTransactions {

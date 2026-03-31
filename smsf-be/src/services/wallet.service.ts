@@ -1,4 +1,4 @@
-import { IWallet, IWalletSummary } from "../interfaces/transaction.interface";
+import { IWallet, IWalletLogPage, IWalletSummary } from "../interfaces/transaction.interface";
 import { randomUUID } from "node:crypto";
 import { DbExecutor, prisma } from "../lib/prisma";
 import {
@@ -10,7 +10,16 @@ import {
     upsertWalletsBulk,
     updateWalletBalance,
     setWalletActive,
+    createWalletLog,
+    getWalletLogsByWalletId,
 } from "../repositories/wallet.repository";
+
+interface IWalletLogOptions {
+    transactionId?: string;
+    action?: string;
+    description?: string;
+    createdAt?: number;
+}
 
 const buildDefaultWallets = (userId: string): IWallet[] => {
     const now = Date.now();
@@ -99,6 +108,7 @@ const applyTransactionEffectToWallet = (
     amount: number,
     mode: "apply" | "revert",
     executor?: DbExecutor,
+    logOptions?: IWalletLogOptions,
 ): Promise<IWallet> => {
     const direction = mode === "apply" ? 1 : -1;
     const delta = transactionType === "income" ? amount * direction : -amount * direction;
@@ -111,11 +121,31 @@ const applyTransactionEffectToWallet = (
     }
 
     return updateWalletBalance(wallet.userId, wallet.id, nextBalance, executor).then(
-        (updatedWallet) => {
+        async (updatedWallet) => {
             if (!updatedWallet) {
                 const error = new Error("Wallet not found during balance update.");
                 (error as Error & { statusCode?: number }).statusCode = 404;
                 throw error;
+            }
+
+            const action =
+                mode === "apply"
+                    ? transactionType === "income" ? "credit" : "debit"
+                    : transactionType === "income" ? "debit" : "credit";
+
+            try {
+                await createWalletLog({
+                    walletId: wallet.id,
+                    transactionId: logOptions?.transactionId ?? undefined,
+                    action: logOptions?.action || action,
+                    amount,
+                    balanceBefore: wallet.balance,
+                    balanceAfter: nextBalance,
+                    description: logOptions?.description,
+                    createdAt: logOptions?.createdAt ?? Date.now(),
+                }, executor);
+            } catch {
+                // wallet log failure is non-critical
             }
 
             return updatedWallet;
@@ -193,11 +223,21 @@ const createWalletForUser = async (
         return updated;
     };
 
+const getWalletLogsForUser = async (
+    userId: string,
+    walletId: string,
+    page: number,
+    limit: number,
+): Promise<IWalletLogPage> => {
+    return getWalletLogsByWalletId(userId, walletId, page, limit);
+};
+
 export {
     listWalletsByUserId,
     getWalletSummary,
     findWalletById,
     applyTransactionEffectToWallet,
     createWalletForUser,
-        setWalletActiveForUser,
+    setWalletActiveForUser,
+    getWalletLogsForUser,
 };

@@ -1,16 +1,22 @@
 'use client';
 
-import { CheckCircle2, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Camera, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, History, ImageUp, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
 import { PrimaryButton } from '@/components/common/primary-button';
+import { UserAvatar } from '@/components/common/user-avatar';
+import { AvatarCropModal } from '@/features/profile/components/avatar-crop-modal';
+import { AvatarPreviewModal } from '@/features/profile/components/avatar-preview-modal';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { getWalletLogsRequest, IWalletLogItem, IWalletLogPage } from '@/lib/calendar/api';
+import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 
 export function ProfileShell() {
     const router = useRouter();
-    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive } = useAuth();
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive, uploadAvatar } = useAuth();
 
     const [displayName, setDisplayName] = useState('');
     const [telegramChatId, setTelegramChatId] = useState('');
@@ -23,8 +29,39 @@ export function ProfileShell() {
     const [walletErrorMessage, setWalletErrorMessage] = useState('');
     const [walletSuccessMessage, setWalletSuccessMessage] = useState('');
     const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+    const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
+    const [cropImageUrl, setCropImageUrl] = useState('');
+    const [isAvatarUploading, setIsAvatarUploading] = useState(false);
 
     const [togglingWalletId, setTogglingWalletId] = useState<string | null>(null);
+    const { isVisible: isBalanceVisible, toggle: toggleBalance } = useBalanceVisible();
+
+    const [expandedWalletId, setExpandedWalletId] = useState<string | null>(null);
+    const [walletLogsMap, setWalletLogsMap] = useState<Record<string, IWalletLogPage>>({});
+    const [isLoadingLogsFor, setIsLoadingLogsFor] = useState<string | null>(null);
+    const [hoveredWalletId, setHoveredWalletId] = useState<string | null>(null);
+
+    const handleLoadWalletLogs = useCallback(async (walletId: string) => {
+        setIsLoadingLogsFor(walletId);
+        try {
+            const data = await getWalletLogsRequest(walletId, 1, 5);
+            setWalletLogsMap((prev) => ({ ...prev, [walletId]: data }));
+        } catch {
+            // ignore
+        } finally {
+            setIsLoadingLogsFor(null);
+        }
+    }, []);
+
+    const handleToggleWalletHistory = useCallback((walletId: string) => {
+        if (expandedWalletId === walletId) {
+            setExpandedWalletId(null);
+            return;
+        }
+        setExpandedWalletId(walletId);
+        void handleLoadWalletLogs(walletId);
+    }, [expandedWalletId, handleLoadWalletLogs]);
+
     useEffect(() => {
         if (!isLoading && !isAuthenticated) {
             router.replace('/login');
@@ -39,6 +76,14 @@ export function ProfileShell() {
         setTelegramChatId(user?.telegramChatId || '');
     }, [user?.telegramChatId]);
 
+    useEffect(() => {
+        return () => {
+            if (cropImageUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(cropImageUrl);
+            }
+        };
+    }, [cropImageUrl]);
+
     const hasTelegramId = useMemo(() => Boolean((user?.telegramChatId || '').trim()), [user?.telegramChatId]);
 
     const handleToggleWalletActive = useCallback(async (walletId: string, current: boolean) => {
@@ -49,6 +94,79 @@ export function ProfileShell() {
             setTogglingWalletId(null);
         }
     }, [updateWalletActive]);
+
+    const openAvatarPicker = useCallback(() => {
+        fileInputRef.current?.click();
+    }, []);
+
+    const closeCropModal = useCallback(() => {
+        if (isAvatarUploading) {
+            return;
+        }
+
+        setCropImageUrl((currentUrl) => {
+            if (currentUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(currentUrl);
+            }
+
+            return '';
+        });
+    }, [isAvatarUploading]);
+
+    const handleAvatarFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+
+        if (!file) {
+            return;
+        }
+
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+            setErrorMessage('Chỉ hỗ trợ JPG, PNG hoặc WebP cho avatar.');
+            setSuccessMessage('');
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            setErrorMessage('Ảnh avatar tối đa 10MB.');
+            setSuccessMessage('');
+            return;
+        }
+
+        const nextObjectUrl = URL.createObjectURL(file);
+
+        setCropImageUrl((currentUrl) => {
+            if (currentUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(currentUrl);
+            }
+
+            return nextObjectUrl;
+        });
+
+        setErrorMessage('');
+        setSuccessMessage('');
+        setIsAvatarPreviewOpen(false);
+    }, []);
+
+    const handleAvatarUpload = useCallback(async (file: File) => {
+        setIsAvatarUploading(true);
+        setErrorMessage('');
+        setSuccessMessage('');
+
+        try {
+            await uploadAvatar(file);
+            await refreshProfile();
+            closeCropModal();
+            setSuccessMessage('Avatar đã được cập nhật.');
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Tải avatar thất bại.';
+            setErrorMessage(responseMessage);
+        } finally {
+            setIsAvatarUploading(false);
+        }
+    }, [closeCropModal, refreshProfile, uploadAvatar]);
 
     const handleSaveProfile = async () => {
         const nextDisplayName = displayName.trim();
@@ -130,6 +248,21 @@ export function ProfileShell() {
     return (
         <main className="app-shell">
             <div className="page-container" style={{ display: 'grid', gap: 14, paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarFileChange} style={{ display: 'none' }} />
+                <AvatarPreviewModal
+                    isOpen={isAvatarPreviewOpen}
+                    imageSrc={user?.avatarUrl}
+                    displayName={user?.displayName || user?.username || 'Người dùng'}
+                    onClose={() => setIsAvatarPreviewOpen(false)}
+                    onPickNewImage={openAvatarPicker}
+                />
+                <AvatarCropModal
+                    isOpen={Boolean(cropImageUrl)}
+                    imageSrc={cropImageUrl}
+                    onClose={closeCropModal}
+                    onConfirm={handleAvatarUpload}
+                    isSubmitting={isAvatarUploading}
+                />
                 <AppCard strong style={{ padding: 16, display: 'grid', gap: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                         <div>
@@ -153,16 +286,74 @@ export function ProfileShell() {
                         </button>
                     </div>
 
-                    <div style={{ borderRadius: 14, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 18, height: 18, borderRadius: 999, overflow: 'hidden', border: '1px solid var(--chip-border)', flexShrink: 0 }}>
-                                <img src="/icon.svg" alt="User avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{ borderRadius: 20, border: '1px solid var(--surface-border)', background: 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 18%, var(--surface-soft)), var(--surface-soft))', padding: 14, display: 'grid', gap: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div style={{ position: 'relative' }}>
+                                <UserAvatar src={user?.avatarUrl} alt={user?.displayName || user?.username || 'User avatar'} size={88} radius={28} onClick={() => setIsAvatarPreviewOpen(true)} />
+                                <button
+                                    type="button"
+                                    onClick={openAvatarPicker}
+                                    style={{
+                                        position: 'absolute',
+                                        right: -4,
+                                        bottom: -4,
+                                        width: 34,
+                                        height: 34,
+                                        borderRadius: 12,
+                                        border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 56%, var(--border))',
+                                        background: 'linear-gradient(135deg, var(--theme-gradient-start), var(--theme-gradient-end))',
+                                        color: '#eff6ff',
+                                        display: 'grid',
+                                        placeItems: 'center',
+                                        boxShadow: '0 10px 30px rgba(2, 8, 23, 0.25)',
+                                    }}
+                                >
+                                    <Camera size={16} />
+                                </button>
                             </div>
-                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Display name</span>
-                            <span style={{ fontWeight: 800 }}>{user?.displayName || user?.username || 'N/A'}</span>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Ảnh đại diện</div>
+                                <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.displayName || user?.username || 'N/A'}</div>
+                                <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.5 }}>Nhấn vào ảnh để xem chi tiết. Bạn có thể chọn ảnh mới, kéo và scale trước khi lưu.</div>
+                            </div>
                         </div>
                         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Username: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.username || 'N/A'}</span></div>
                         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Role: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.role || 'user'}</span></div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsAvatarPreviewOpen(true)}
+                                style={{
+                                    minHeight: 42,
+                                    borderRadius: 14,
+                                    border: '1px solid var(--border)',
+                                    background: 'var(--surface-strong)',
+                                    color: 'var(--foreground)',
+                                    fontWeight: 700,
+                                }}
+                            >
+                                Xem avatar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={openAvatarPicker}
+                                style={{
+                                    minHeight: 42,
+                                    borderRadius: 14,
+                                    border: '1px solid var(--chip-border)',
+                                    background: 'var(--chip-bg)',
+                                    color: 'var(--foreground)',
+                                    fontWeight: 800,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 8,
+                                }}
+                            >
+                                <ImageUp size={16} />
+                                Đổi avatar
+                            </button>
+                        </div>
                     </div>
 
                     <div style={{ borderRadius: 14, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 10 }}>
@@ -233,7 +424,28 @@ export function ProfileShell() {
                             <WalletCards size={17} color="var(--accent)" />
                             <span style={{ fontWeight: 800 }}>Ví của bạn</span>
                         </div>
-                        <span style={{ fontWeight: 800, color: 'var(--accent-text)', whiteSpace: 'nowrap' }}>{formatCurrencyVND(totalWalletBalance)}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 800, color: 'var(--accent-text)', whiteSpace: 'nowrap', letterSpacing: isBalanceVisible ? undefined : '0.06em' }}>
+                                {isBalanceVisible ? formatCurrencyVND(totalWalletBalance) : '•••••••••'}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={toggleBalance}
+                                style={{
+                                    width: 30,
+                                    height: 30,
+                                    borderRadius: 8,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-soft)',
+                                    color: 'var(--muted)',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                {isBalanceVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                            </button>
+                        </div>
                     </div>
 
                     <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '10px 12px', display: 'grid', gap: 8 }}>
@@ -311,36 +523,84 @@ export function ProfileShell() {
                         <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có ví nào.</div>
                     ) : (
                         <div style={{ display: 'grid', gap: 8 }}>
-                            {wallets.map((wallet) => (
+                            {wallets.map((wallet) => {
+                                const isExpanded = expandedWalletId === wallet.id;
+                                const logs = walletLogsMap[wallet.id];
+                                const isLoadingLogs = isLoadingLogsFor === wallet.id;
+                                const isHovered = hoveredWalletId === wallet.id;
+                                return (
                                 <div
                                     key={wallet.id}
+                                    onMouseEnter={() => setHoveredWalletId(wallet.id)}
+                                    onMouseLeave={() => setHoveredWalletId((currentId) => (currentId === wallet.id ? null : currentId))}
                                     style={{
                                         borderRadius: 12,
-                                        border: '1px solid var(--surface-border)',
+                                        border: isExpanded || isHovered ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)',
                                         background: 'var(--surface-soft)',
-                                        padding: '10px 12px',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        gap: 10,
-                                            opacity: wallet.isActive === false ? 0.55 : 1,
+                                        overflow: 'hidden',
+                                        opacity: wallet.isActive === false ? 0.55 : 1,
+                                        boxShadow: isExpanded || isHovered ? '0 10px 24px rgba(15, 23, 42, 0.08)' : 'none',
+                                        transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+                                        transform: isHovered && !isExpanded ? 'translateY(-1px)' : 'translateY(0)',
                                     }}
                                 >
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
+                                    <div
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => handleToggleWalletHistory(wallet.id)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                handleToggleWalletHistory(wallet.id);
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '10px 12px',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            gap: 10,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
                                             <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
                                                 {wallet.type}
                                                 {wallet.isActive === false && (
                                                     <span style={{ color: '#ef4444', fontWeight: 700, textTransform: 'none' }}>· Không dùng</span>
                                                 )}
                                             </div>
-                                    </div>
+                                        </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <div style={{ fontWeight: 800, fontSize: 13.5 }}>{formatCurrencyVND(wallet.balance)}</div>
+                                            <div style={{ fontWeight: 800, fontSize: 13.5, letterSpacing: isBalanceVisible ? undefined : '0.06em' }}>{isBalanceVisible ? formatCurrencyVND(wallet.balance) : '•••••••'}</div>
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    handleToggleWalletHistory(wallet.id);
+                                                }}
+                                                title="Lịch sử ví"
+                                                style={{
+                                                    width: 30,
+                                                    height: 30,
+                                                    borderRadius: 8,
+                                                    border: isExpanded ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)',
+                                                    background: isExpanded ? 'var(--chip-bg)' : 'transparent',
+                                                    color: isExpanded ? 'var(--accent)' : 'var(--muted)',
+                                                    display: 'grid',
+                                                    placeItems: 'center',
+                                                }}
+                                            >
+                                                {isExpanded ? <ChevronUp size={14} /> : <History size={14} />}
+                                            </button>
                                             <button
                                                 type="button"
                                                 disabled={togglingWalletId === wallet.id}
-                                                onClick={() => void handleToggleWalletActive(wallet.id, wallet.isActive !== false)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleToggleWalletActive(wallet.id, wallet.isActive !== false);
+                                                }}
                                                 title={wallet.isActive === false ? 'Bật sử dụng ví' : 'Tắt sử dụng ví'}
                                                 style={{
                                                     width: 44,
@@ -374,8 +634,97 @@ export function ProfileShell() {
                                                 />
                                             </button>
                                         </div>
+                                    </div>
+
+                                    {isExpanded ? (
+                                        <div
+                                            style={{
+                                                borderTop: '1px solid var(--surface-border)',
+                                                padding: '10px 12px',
+                                                display: 'grid',
+                                                gap: 8,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>
+                                                <History size={12} />
+                                                Lịch sử biến động số dư
+                                            </div>
+
+                                            {isLoadingLogs ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}>
+                                                    <LoaderCircle size={12} className="spin" /> Đang tải...
+                                                </div>
+                                            ) : null}
+
+                                            {!isLoadingLogs && logs && logs.items.length === 0 ? (
+                                                <div style={{ color: 'var(--muted)', fontSize: 12 }}>Chưa có lịch sử biến động.</div>
+                                            ) : null}
+
+                                            {logs && logs.items.length > 0 ? (
+                                                <div style={{ display: 'grid', gap: 6 }}>
+                                                    {logs.items.map((log: IWalletLogItem) => {
+                                                        const isCredit = log.action === 'credit';
+                                                        const actionLabel =
+                                                            log.action === 'credit' ? '+ Thu vào'
+                                                            : log.action === 'debit' ? '- Chi ra'
+                                                            : log.action === 'create' ? 'Khởi tạo'
+                                                            : log.action;
+                                                        return (
+                                                            <div
+                                                                key={log.id}
+                                                                style={{
+                                                                    borderRadius: 9,
+                                                                    border: '1px solid var(--surface-border)',
+                                                                    background: 'var(--surface-base)',
+                                                                    padding: '8px 10px',
+                                                                    display: 'grid',
+                                                                    gap: 3,
+                                                                }}
+                                                            >
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                                                    <span style={{ fontSize: 12, fontWeight: 700, color: isCredit ? '#16a34a' : '#f97316' }}>
+                                                                        {actionLabel} {isBalanceVisible ? formatCurrencyVND(log.amount) : '•••••'}
+                                                                    </span>
+                                                                    <span style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                                                                        {new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(log.createdAt))}
+                                                                    </span>
+                                                                </div>
+                                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                                                    {isBalanceVisible
+                                                                        ? `${formatCurrencyVND(log.balanceBefore)} → ${formatCurrencyVND(log.balanceAfter)}`
+                                                                        : '••••• → •••••'}
+                                                                    {log.description ? <span> · {log.description}</span> : null}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
+
+                                            {logs && logs.total > logs.items.length ? (
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => router.push(`/dashboard?tab=wallets&view=drawer&walletId=${encodeURIComponent(wallet.id)}`)}
+                                                        style={{
+                                                            border: 'none',
+                                                            background: 'transparent',
+                                                            color: 'var(--accent)',
+                                                            fontSize: 11.5,
+                                                            fontWeight: 800,
+                                                            padding: 0,
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        Xem thêm -&gt;
+                                                    </button>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </AppCard>

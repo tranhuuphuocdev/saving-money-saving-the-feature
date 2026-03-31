@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { BellDot, CircleDollarSign, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { BellDot, CircleDollarSign, Eye, EyeOff, House, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
 import { AppCard } from '@/components/common/app-card';
 import { IconButton } from '@/components/common/icon-button';
 import { BottomNav } from '@/components/navigation/bottom-nav';
@@ -12,6 +12,7 @@ import { ExpenseDonutCard } from '@/features/dashboard/components/charts/expense
 import { SavingsRingCard } from '@/features/dashboard/components/charts/savings-ring-card';
 import { SpendingTrendCard } from '@/features/dashboard/components/charts/spending-trend-card';
 import { RecentTransactionsCard } from '@/features/dashboard/components/recent-transactions-card';
+import { WalletHistoryTab } from '@/features/dashboard/components/wallet-history-tab';
 import { CalendarShell } from '@/features/calendar/components/calendar-shell';
 import { TransactionsTab } from '@/features/dashboard/components/transactions-tab';
 import { ChatTab } from '@/features/dashboard/components/journal-tab';
@@ -19,6 +20,7 @@ import { FloatingTransactionBubble } from '@/components/common/floating-transact
 import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest, getSpendingTrendRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
+import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { ICategoryItem } from '@/types/calendar';
@@ -36,12 +38,23 @@ function PlaceholderPanel({ title, description }: { title: string; description: 
 
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
+function getDashboardTabFromSearch(tab: string | null): TypeDashboardTab {
+    if (tab === 'transactions' || tab === 'calendar' || tab === 'wallets' || tab === 'chat') {
+        return tab;
+    }
+
+    return 'dashboard';
+}
+
 export function DashboardShell() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const initialActiveTab = getDashboardTabFromSearch(searchParams.get('tab'));
     const { isAuthenticated, isLoading, logout, refreshWallets, user, totalWalletBalance, wallets } = useAuth();
     const { theme, toggleTheme } = useTheme();
+    const { isVisible: isBalanceVisible, toggle: toggleBalance } = useBalanceVisible();
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<TypeDashboardTab>('dashboard');
+    const [activeTab, setActiveTab] = useState<TypeDashboardTab>(initialActiveTab);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -60,6 +73,9 @@ export function DashboardShell() {
     const calendarRevealTimerRef = useRef<number | null>(null);
 
     const QUERY_LIMIT = 100;
+    const requestedTab = searchParams.get('tab');
+    const requestedWalletId = searchParams.get('walletId') || undefined;
+    const isDrawerView = searchParams.get('view') === 'drawer';
 
     const chartPalette = [
         '#f59e0b',
@@ -264,6 +280,14 @@ export function DashboardShell() {
     }, [isAuthenticated, isLoading, router]);
 
     useEffect(() => {
+        if (!requestedTab) {
+            return;
+        }
+
+        setActiveTab(getDashboardTabFromSearch(requestedTab));
+    }, [requestedTab]);
+
+    useEffect(() => {
         if (!isAuthenticated) {
             return;
         }
@@ -338,45 +362,6 @@ export function DashboardShell() {
         </div>
     );
 
-    const walletContent = (
-        <AppCard strong style={{ padding: 16, display: 'grid', gap: 12 }}>
-            <div>
-                <div style={{ fontSize: 16, fontWeight: 800 }}>Ví & số dư hiện tại</div>
-                <div style={{ marginTop: 6, color: 'var(--muted)', lineHeight: 1.65, fontSize: 13 }}>
-                    Tổng số dư được đồng bộ trực tiếp từ backend và cập nhật ngay sau mỗi giao dịch.
-                </div>
-            </div>
-
-            <div style={{ display: 'grid', gap: 10 }}>
-                {wallets.length === 0 ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>Chưa có ví nào để hiển thị.</div>
-                ) : (
-                    wallets.map((wallet) => (
-                        <div
-                            key={wallet.id}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 12,
-                                padding: '12px 14px',
-                                borderRadius: 14,
-                                background: 'var(--surface-soft)',
-                                border: '1px solid var(--border)',
-                            }}
-                        >
-                            <div>
-                                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{wallet.name}</div>
-                                <div style={{ color: 'var(--muted)', fontSize: 11.5, textTransform: 'uppercase' }}>{wallet.type}</div>
-                            </div>
-                            <div style={{ fontWeight: 900, fontSize: 'clamp(11px, 2.8vw, 13.5px)', whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrencyVND(wallet.balance)}</div>
-                        </div>
-                    ))
-                )}
-            </div>
-        </AppCard>
-    );
-
     let content = dashboardContent;
 
     if (activeTab === 'transactions') {
@@ -416,8 +401,26 @@ export function DashboardShell() {
             </div>
         );
     } else if (activeTab === 'wallets') {
-        content = walletContent;
+        content = <WalletHistoryTab wallets={wallets} preferredWalletId={requestedWalletId} />;
     }
+
+    const handleOpenWalletHistory = useCallback((walletId?: string) => {
+        const nextSearchParams = new URLSearchParams();
+        nextSearchParams.set('tab', 'wallets');
+        nextSearchParams.set('view', 'drawer');
+
+        if (walletId) {
+            nextSearchParams.set('walletId', walletId);
+        }
+
+        router.replace(`/dashboard?${nextSearchParams.toString()}`);
+        setActiveTab('wallets');
+    }, [router]);
+
+    const handleReturnHome = useCallback(() => {
+        router.replace('/dashboard');
+        setActiveTab('dashboard');
+    }, [router]);
 
     async function handleConfirmLogout() {
         setIsLogoutConfirmOpen(false);
@@ -482,11 +485,39 @@ export function DashboardShell() {
 
     return (
         <>
-            <FloatingTransactionBubble />
+            {!isDrawerView ? <FloatingTransactionBubble /> : null}
+            {isDrawerView ? (
+                <button
+                    type="button"
+                    onClick={handleReturnHome}
+                    style={{
+                        position: 'fixed',
+                        right: 16,
+                        bottom: 16,
+                        zIndex: 35,
+                        minHeight: 46,
+                        borderRadius: 999,
+                        border: '1px solid var(--chip-border)',
+                        background: 'linear-gradient(135deg, var(--theme-gradient-start), var(--theme-gradient-end))',
+                        color: 'var(--theme-nav-active)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '0 16px',
+                        fontSize: 13,
+                        fontWeight: 800,
+                        boxShadow: '0 18px 40px color-mix(in srgb, var(--primary) 28%, transparent)',
+                    }}
+                >
+                    <House size={16} />
+                    Trang chủ
+                </button>
+            ) : null}
             <SideDrawer
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}
                 onLogout={() => setIsLogoutConfirmOpen(true)}
+                onOpenWalletHistory={handleOpenWalletHistory}
                 user={user}
                 totalWalletBalance={totalWalletBalance}
                 wallets={wallets}
@@ -534,10 +565,32 @@ export function DashboardShell() {
                     >
                         <div>
                             <div style={{ color: 'var(--muted)', fontSize: 12 }}>Tổng ví hiện tại</div>
-                            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 5 }}>{formatCurrencyVND(totalWalletBalance)}</div>
+                            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 5, letterSpacing: isBalanceVisible ? undefined : 2 }}>
+                                {isBalanceVisible ? formatCurrencyVND(totalWalletBalance) : '••••••••••••'}
+                            </div>
                         </div>
-                        <div style={{ width: 54, height: 54, borderRadius: 18, display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, var(--theme-panel-gradient-start), var(--theme-panel-gradient-end))' }}>
-                            <CircleDollarSign size={22} color="var(--theme-nav-active)" />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <button
+                                type="button"
+                                onClick={toggleBalance}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 12,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'transparent',
+                                    color: 'var(--muted)',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    cursor: 'pointer',
+                                }}
+                                title={isBalanceVisible ? 'Ẩn số dư' : 'Hiện số dư'}
+                            >
+                                {isBalanceVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                            <div style={{ width: 54, height: 54, borderRadius: 18, display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, var(--theme-panel-gradient-start), var(--theme-panel-gradient-end))' }}>
+                                <CircleDollarSign size={22} color="var(--theme-nav-active)" />
+                            </div>
                         </div>
                     </AppCard>
 
@@ -603,7 +656,7 @@ export function DashboardShell() {
                     {content}
                 </div>
             </main>
-            <BottomNav activeTab={activeTab} onSelect={handleNavSelect} />
+            {!isDrawerView ? <BottomNav activeTab={activeTab} onSelect={handleNavSelect} /> : null}
 
             {isLogoutConfirmOpen ? (
                 <div

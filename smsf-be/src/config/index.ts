@@ -16,6 +16,14 @@ const parseGoogleClientIds = (): string[] => {
         .filter(Boolean);
 };
 
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+    if (value === undefined) {
+        return fallback;
+    }
+
+    return value === "true";
+};
+
 const config = {
     port: Number(process.env.PORT) || 3000,
     nodeEnv: process.env.NODE_ENV || "development",
@@ -65,13 +73,14 @@ const config = {
     googleAuth: {
         clientIds: parseGoogleClientIds(),
     },
-    tracing: {
-        enabled: process.env.TRACING_ENABLED !== "false",
-        serviceName: process.env.OTEL_SERVICE_NAME || "smsf-be",
-        otlpTraceUrl:
-            process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-            "http://localhost:4318/v1/traces",
-        debug: process.env.TRACING_DEBUG === "true",
+    r2: {
+        endpoint: process.env.R2_ENDPOINT || "",
+        bucketName: process.env.R2_BUCKET_NAME || "",
+        accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+        publicBaseUrl: process.env.R2_PUBLIC_BASE_URL || "",
+        region: process.env.R2_REGION || "auto",
+        enabled: parseBoolean(process.env.R2_ENABLED, false),
     },
     loki: {
         LOKI_HOST: process.env.LOKI_HOST || "http://localhost:3100",

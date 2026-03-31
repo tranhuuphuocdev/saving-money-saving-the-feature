@@ -103,6 +103,19 @@ export async function updateProfileRequest(payload: { telegramChatId?: string; d
     return response.data.data;
 }
 
+export async function uploadProfileAvatarRequest(file: File) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const response = await api.post<IProfileResponse>('/auth/profile/avatar', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+
+    return response.data.data;
+}
+
 export async function logoutRequest(): Promise<void> {
     try {
         await api.post('/auth/logout');

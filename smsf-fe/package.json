@@ -13,6 +13,7 @@
     "next": "15.5.12",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-easy-crop": "^5.5.7",
     "recharts": "^2.15.4",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"

@@ -3,6 +3,7 @@ import { IWalletItem } from '@/types/calendar';
 export interface IUserSession {
     id: string;
     displayName?: string;
+    avatarUrl?: string;
     username: string;
     role: string;
     telegramChatId?: string;
@@ -19,6 +20,7 @@ export interface IAuthContextValue {
     register: (username: string, password: string, telegramChatId?: string) => Promise<void>;
     createWallet: (payload: { name: string; type?: string; balance?: number }) => Promise<void>;
     updateTelegramChatId: (telegramChatId?: string, displayName?: string) => Promise<void>;
+    uploadAvatar: (file: File) => Promise<void>;
     logout: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     refreshWallets: () => Promise<void>;

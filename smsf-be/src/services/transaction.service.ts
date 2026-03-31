@@ -35,6 +35,8 @@ interface ITransactionMetaPayload {
     budgetName: string;
 }
 
+type TypeWalletLogEvent = "create" | "update-apply" | "update-revert" | "delete";
+
 const resolveTransactionMeta = async (
     userId: string,
     actorUsername: string | undefined,
@@ -72,6 +74,34 @@ const listTransactionsByQuery = (
     return queryTransactionsByUser(userId, queryParams);
 };
 
+const getFallbackTransactionDescription = (
+    type: "income" | "expense",
+): string => {
+    return type === "income" ? "Giao dịch thu nhập" : "Giao dịch chi tiêu";
+};
+
+const buildWalletLogDescription = (
+    event: TypeWalletLogEvent,
+    type: "income" | "expense",
+    description?: string,
+): string => {
+    const baseDescription = String(description || "").trim() || getFallbackTransactionDescription(type);
+
+    if (event === "create") {
+        return baseDescription;
+    }
+
+    if (event === "update-apply") {
+        return `Cập nhật giao dịch: ${baseDescription}`;
+    }
+
+    if (event === "update-revert") {
+        return `Hoàn tác để cập nhật giao dịch: ${baseDescription}`;
+    }
+
+    return `Xóa giao dịch: ${baseDescription}`;
+};
+
 const createTransactionForUser = async (
     userId: string,
     payload: ICreateTransactionPayload,
@@ -86,14 +116,6 @@ const createTransactionForUser = async (
             throw error;
         }
 
-        const updatedWallet = await applyTransactionEffectToWallet(
-            wallet,
-            payload.type,
-            payload.amount,
-            "apply",
-            txExecutor,
-        );
-
         const meta = await resolveTransactionMeta(
             userId,
             actorUsername,
@@ -102,6 +124,17 @@ const createTransactionForUser = async (
         );
 
         const transaction = await createTransaction(userId, payload, meta, txExecutor);
+        const updatedWallet = await applyTransactionEffectToWallet(
+            wallet,
+            payload.type,
+            payload.amount,
+            "apply",
+            txExecutor,
+            {
+                transactionId: transaction.id,
+                description: buildWalletLogDescription("create", payload.type, transaction.description ?? payload.description),
+            },
+        );
         await syncBudgetJarsByTimestamp(userId, payload.timestamp, txExecutor);
 
         return {
@@ -123,23 +156,6 @@ const createTransactionsBulkForUser = async (
     actorUsername?: string,
 ): Promise<{ transactions: ITransaction[] }> => {
     return withTransaction(async (executor) => {
-        for (const payload of payloads) {
-            const wallet = await findWalletById(userId, payload.walletId, executor);
-            if (!wallet) {
-                const error = new Error(`Wallet not found: ${payload.walletId}`);
-                (error as Error & { statusCode?: number }).statusCode = 404;
-                throw error;
-            }
-
-            await applyTransactionEffectToWallet(
-                wallet,
-                payload.type,
-                payload.amount,
-                "apply",
-                executor,
-            );
-        }
-
         const metadataItems = await Promise.all(
             payloads.map((payload) =>
                 resolveTransactionMeta(
@@ -157,6 +173,27 @@ const createTransactionsBulkForUser = async (
             metadataItems,
             executor,
         );
+
+        for (const transaction of transactions) {
+            const wallet = await findWalletById(userId, transaction.walletId, executor);
+            if (!wallet) {
+                const error = new Error(`Wallet not found: ${transaction.walletId}`);
+                (error as Error & { statusCode?: number }).statusCode = 404;
+                throw error;
+            }
+
+            await applyTransactionEffectToWallet(
+                wallet,
+                transaction.type,
+                transaction.amount,
+                "apply",
+                executor,
+                {
+                    transactionId: transaction.id,
+                    description: buildWalletLogDescription("create", transaction.type, transaction.description),
+                },
+            );
+        }
 
         const monthKeys = Array.from(
             new Set(
@@ -215,6 +252,10 @@ const updateTransactionForUser = async (
             existing.amount,
             "revert",
             executor,
+            {
+                transactionId: existing.id,
+                description: buildWalletLogDescription("update-revert", existing.type, existing.description),
+            },
         );
 
         // If the wallet hasn't changed, use the reverted wallet (with its updated balance)
@@ -228,6 +269,14 @@ const updateTransactionForUser = async (
             nextAmount,
             "apply",
             executor,
+            {
+                transactionId: existing.id,
+                description: buildWalletLogDescription(
+                    "update-apply",
+                    nextType,
+                    payload.description ?? existing.description,
+                ),
+            },
         );
 
         const resolvedCategory = payload.category ?? existing.category;
@@ -297,6 +346,10 @@ const deleteTransactionForUser = async (
             existing.amount,
             "revert",
             executor,
+            {
+                transactionId: existing.id,
+                description: buildWalletLogDescription("delete", existing.type, existing.description),
+            },
         );
 
         await syncBudgetJarsByTimestamp(userId, existing.timestamp, executor);

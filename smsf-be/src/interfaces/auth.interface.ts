@@ -4,9 +4,13 @@ import { TypeJwtTokenKind, TypeUserRole } from "../types/auth.type";
 export interface IUser {
     id: string;
     displayName: string;
+    avatarUrl?: string;
     username: string;
+    email?: string;
     password: string;
     role: TypeUserRole;
+    authProvider?: string;
+    googleSub?: string;
     telegramChatId?: string;
 }
 

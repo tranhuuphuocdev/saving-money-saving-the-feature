@@ -7,9 +7,10 @@ import {
 	logout,
 	register,
 	refreshToken,
+	uploadProfileAvatar,
 	updateProfile,
 } from "../../controllers/auth.controller";
-import { authMiddleware } from "../../middlewares";
+import { authMiddleware, avatarUpload } from "../../middlewares";
 
 const router = express.Router();
 
@@ -33,6 +34,7 @@ router.post("/refresh", authLimiter, refreshToken);
 // Protected routes
 router.get("/profile", authMiddleware, getProfile);
 router.patch("/profile", authMiddleware, updateProfile);
+router.post("/profile/avatar", authLimiter, authMiddleware, avatarUpload.single("avatar"), uploadProfileAvatar);
 router.post("/logout", authLimiter, authMiddleware, logout);
 
 export default router;

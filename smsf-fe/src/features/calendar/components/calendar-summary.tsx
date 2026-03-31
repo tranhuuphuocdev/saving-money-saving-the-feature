@@ -43,9 +43,9 @@ export function CalendarSummary({
     const motivationalText =
         savingsGoal > 0
             ? avgDailyExpense <= avgDailyAllowance
-                ? 'Bạn đang giữ nhịp khá ổn đó, cuối tháng ví sẽ cảm ơn bạn'
+                ? 'Cứ đà chi tiêu này thì sớm muộn cũng giàu thôi, cố lên nào!'
                 : 'Bóp nhẹ vài khoản nhỏ thôi là mục tiêu tháng này lại trong tầm tay'
-            : 'Set mục tiêu tiết kiệm tháng này để biến “để dành sau” thành “để dành thật”';
+            : 'Đặt mục tiêu tiết kiệm tháng này để biến “để dành sau” thành “để dành thật”';
 
     return (
         <div

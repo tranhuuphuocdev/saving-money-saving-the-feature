@@ -19,13 +19,18 @@ import {
     storeRefreshToken,
 } from "../lib/auth-token-store";
 import { prisma } from "../lib/prisma";
+import { isR2Configured, uploadPublicObject } from "../lib/r2";
 import { ensureDefaultCategoriesForUser } from "../services/category.service";
 import { listWalletsByUserId } from "../services/wallet.service";
 
 type IUserSource = {
     uId: string;
     dn?: string;
+    avatarUrl?: string;
     username: string;
+    email?: string;
+    authProvider?: string;
+    googleSub?: string;
     password: string;
     role: IUser["role"];
     teleChatId?: string;
@@ -38,9 +43,13 @@ const mapUserSource = (source: IUserSource): IUser => {
     return {
         id: String(source.uId),
         displayName: String(source.dn || source.username || source.uId),
+        avatarUrl: source.avatarUrl ? String(source.avatarUrl) : undefined,
         username: source.username,
+        email: source.email ? String(source.email) : undefined,
         password: source.password,
         role: source.role,
+        authProvider: source.authProvider ? String(source.authProvider) : undefined,
+        googleSub: source.googleSub ? String(source.googleSub) : undefined,
         telegramChatId: source.teleChatId ? String(source.teleChatId) : undefined,
     };
 };
@@ -49,10 +58,25 @@ const mapUserRow = (row: Record<string, unknown>): IUser => {
     return {
         id: String(row.id),
         displayName: String(row.displayName || row.username || row.id),
+        avatarUrl: row.avatarUrl ? String(row.avatarUrl) : undefined,
         username: String(row.username),
+        email: row.email ? String(row.email) : undefined,
         password: String(row.password),
         role: row.role as IUser["role"],
+        authProvider: row.authProvider ? String(row.authProvider) : undefined,
+        googleSub: row.googleSub ? String(row.googleSub) : undefined,
         telegramChatId: row.telegramChat ? String(row.telegramChat) : undefined,
+    };
+};
+
+const buildAuthUserPayload = (user: IUser) => {
+    return {
+        id: user.id,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        username: user.username,
+        role: user.role,
+        telegramChatId: user.telegramChatId,
     };
 };
 
@@ -81,6 +105,35 @@ const findUserByUsername = async (username: string): Promise<IUser | undefined> 
         },
         orderBy: { updatedAt: "desc" },
     });
+    return result ? mapUserRow(result as unknown as Record<string, unknown>) : undefined;
+};
+
+const findUserByGoogleIdentity = async (
+    googleSub: string,
+    email: string,
+): Promise<IUser | undefined> => {
+    const conditions = [] as Array<Record<string, string>>;
+
+    if (googleSub) {
+        conditions.push({ googleSub });
+    }
+
+    if (email) {
+        conditions.push({ email });
+    }
+
+    if (conditions.length === 0) {
+        return undefined;
+    }
+
+    const result = await prisma.user.findFirst({
+        where: {
+            isDeleted: false,
+            OR: conditions,
+        },
+        orderBy: { updatedAt: "desc" },
+    });
+
     return result ? mapUserRow(result as unknown as Record<string, unknown>) : undefined;
 };
 
@@ -131,29 +184,23 @@ const findUserById = async (userId: string): Promise<IUser | undefined> => {
 };
 
 const createUserDocument = async (payload: IUserSource): Promise<void> => {
-    await prisma.$executeRaw`
-        INSERT INTO users (
-            u_id,
-            dn,
-            username,
-            tele_chat_id,
-            password,
-            role,
-            created_at,
-            updated_at,
-            is_deleted
-        ) VALUES (
-            ${payload.uId}::uuid,
-            ${payload.dn || payload.username},
-            ${payload.username},
-            ${payload.teleChatId || null},
-            ${payload.password},
-            ${payload.role},
-            ${BigInt(payload.createdAt || Date.now())},
-            ${BigInt(payload.updatedAt || Date.now())},
-            ${payload.isDeleted ?? false}
-        )
-    `;
+    await prisma.user.create({
+        data: {
+            id: payload.uId,
+            displayName: payload.dn || payload.username,
+            avatarUrl: payload.avatarUrl || null,
+            username: payload.username,
+            email: payload.email || null,
+            authProvider: payload.authProvider || "local",
+            googleSub: payload.googleSub || null,
+            telegramChat: payload.teleChatId || null,
+            password: payload.password,
+            role: payload.role,
+            createdAt: BigInt(payload.createdAt || Date.now()),
+            updatedAt: BigInt(payload.updatedAt || Date.now()),
+            isDeleted: payload.isDeleted ?? false,
+        },
+    });
 };
 
 const updateUserTelegramChatId = async (
@@ -161,6 +208,10 @@ const updateUserTelegramChatId = async (
     payload: {
         telegramChatId?: string;
         displayName?: string;
+        avatarUrl?: string;
+        email?: string;
+        authProvider?: string;
+        googleSub?: string;
     },
 ): Promise<IUser | undefined> => {
     const existing = await prisma.user.findFirst({
@@ -178,8 +229,24 @@ const updateUserTelegramChatId = async (
     const updatedResult = await prisma.user.update({
         where: { id: userId },
         data: {
-            telegramChat: payload.telegramChatId ?? "",
+            telegramChat:
+                payload.telegramChatId === undefined
+                    ? existing.telegramChat
+                    : payload.telegramChatId || null,
             displayName: payload.displayName || existing.displayName || existing.username,
+            avatarUrl:
+                payload.avatarUrl === undefined
+                    ? existing.avatarUrl
+                    : payload.avatarUrl || null,
+            email:
+                payload.email === undefined
+                    ? existing.email
+                    : payload.email || null,
+            authProvider: payload.authProvider || existing.authProvider,
+            googleSub:
+                payload.googleSub === undefined
+                    ? existing.googleSub
+                    : payload.googleSub || null,
             updatedAt: BigInt(Date.now()),
         },
     });
@@ -308,6 +375,21 @@ const loginAndAttachAuthCookies = (res: Response, user: IUser): void => {
     setAuthCookies(res, { accessToken, refreshToken });
 };
 
+const isGoogleHostedAvatar = (avatarUrl?: string): boolean => {
+    return Boolean(avatarUrl && /googleusercontent\.com/i.test(avatarUrl));
+};
+
+const buildAvatarObjectKey = (userId: string, mimeType: string): string => {
+    const extensionMap: Record<string, string> = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    };
+
+    const extension = extensionMap[mimeType] || "jpg";
+    return `avatars/${userId}/${Date.now()}-${randomUUID()}.${extension}`;
+};
+
 /**
  * Login - validate credentials & return JWT
  */
@@ -338,13 +420,7 @@ const login = async (req: Request, res: Response): Promise<Response | void> => {
             success: true,
             message: "Login successful.",
             data: {
-                user: {
-                    id: user.id,
-                    displayName: user.displayName,
-                    username: user.username,
-                    role: user.role,
-                    telegramChatId: user.telegramChatId,
-                },
+                user: buildAuthUserPayload(user),
             },
         });
     } catch (error) {
@@ -396,7 +472,11 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
         const newUser: IUserSource = {
             uId: randomUUID(),
             dn: safeUsername,
+                avatarUrl: undefined,
             username: safeUsername,
+                email: undefined,
+                authProvider: "local",
+                googleSub: undefined,
             password: hashPassword(safePassword),
             role: "user",
             teleChatId: safeTelegramChatId || undefined,
@@ -416,13 +496,7 @@ const register = async (req: Request, res: Response): Promise<Response | void> =
             success: true,
             message: "Register successful.",
             data: {
-                user: {
-                    id: user.id,
-                    displayName: user.displayName,
-                    username: user.username,
-                    role: user.role,
-                    telegramChatId: user.telegramChatId,
-                },
+                user: buildAuthUserPayload(user),
             },
         });
     } catch (error) {
@@ -467,16 +541,18 @@ const loginWithGoogle = async (req: Request, res: Response): Promise<Response | 
 
         const payload = ticket.getPayload();
         const email = String(payload?.email || "").trim().toLowerCase();
+        const googleSub = String(payload?.sub || "").trim();
+        const googleAvatarUrl = String(payload?.picture || "").trim();
         const emailVerified = Boolean(payload?.email_verified);
 
-        if (!email || !emailVerified) {
+        if (!email || !emailVerified || !googleSub) {
             return res.status(401).json({
                 success: false,
                 message: "Google account email is not verified.",
             });
         }
 
-        let user = await findUserByUsername(email);
+        let user = await findUserByGoogleIdentity(googleSub, email);
 
         if (!user) {
             const now = Date.now();
@@ -485,7 +561,11 @@ const loginWithGoogle = async (req: Request, res: Response): Promise<Response | 
             const newUser: IUserSource = {
                 uId: randomUUID(),
                 dn: displayName,
+                avatarUrl: googleAvatarUrl || undefined,
                 username: uniqueUsername,
+                email,
+                authProvider: "google",
+                googleSub,
                 password: hashPassword(randomUUID()),
                 role: "user",
                 teleChatId: undefined,
@@ -500,10 +580,22 @@ const loginWithGoogle = async (req: Request, res: Response): Promise<Response | 
             user = mapUserSource(newUser);
         } else {
             const nextDisplayName = String(payload?.name || user.displayName || user.username).trim();
-            if (nextDisplayName && nextDisplayName !== user.displayName) {
+            const shouldUpdateGoogleAvatar = !user.avatarUrl || isGoogleHostedAvatar(user.avatarUrl);
+            const needsUpdate =
+                (nextDisplayName && nextDisplayName !== user.displayName) ||
+                email !== (user.email || "") ||
+                googleSub !== (user.googleSub || "") ||
+                (shouldUpdateGoogleAvatar && googleAvatarUrl && googleAvatarUrl !== user.avatarUrl) ||
+                user.authProvider !== "google";
+
+            if (needsUpdate) {
                 const updated = await updateUserTelegramChatId(user.id, {
                     displayName: nextDisplayName,
                     telegramChatId: user.telegramChatId,
+                    avatarUrl: shouldUpdateGoogleAvatar ? googleAvatarUrl || user.avatarUrl : undefined,
+                    email,
+                    authProvider: "google",
+                    googleSub,
                 });
                 if (updated) {
                     user = updated;
@@ -517,13 +609,7 @@ const loginWithGoogle = async (req: Request, res: Response): Promise<Response | 
             success: true,
             message: "Google login successful.",
             data: {
-                user: {
-                    id: user.id,
-                    displayName: user.displayName,
-                    username: user.username,
-                    role: user.role,
-                    telegramChatId: user.telegramChatId,
-                },
+                user: buildAuthUserPayload(user),
             },
         });
     } catch (error) {
@@ -643,6 +729,7 @@ const getProfile = async (req: Request, res: Response): Promise<Response> => {
         data: {
             id: req.user.id,
             displayName: user?.displayName,
+            avatarUrl: user?.avatarUrl,
             username: req.user.username,
             role: req.user.role,
             telegramChatId: user?.telegramChatId,
@@ -707,6 +794,7 @@ const updateProfile = async (req: Request, res: Response): Promise<Response> => 
             data: {
                 id: updatedUser.id,
                 displayName: updatedUser.displayName,
+                avatarUrl: updatedUser.avatarUrl,
                 username: updatedUser.username,
                 role: updatedUser.role,
                 telegramChatId: updatedUser.telegramChatId,
@@ -720,5 +808,67 @@ const updateProfile = async (req: Request, res: Response): Promise<Response> => 
     }
 };
 
+const uploadProfileAvatar = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    if (!isR2Configured()) {
+        return res.status(503).json({
+            success: false,
+            message: "Avatar storage is not configured on server.",
+        });
+    }
+
+    const uploadedFile = req.file;
+
+    if (!uploadedFile) {
+        return res.status(400).json({
+            success: false,
+            message: "Avatar file is required.",
+        });
+    }
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(uploadedFile.mimetype)) {
+        return res.status(400).json({
+            success: false,
+            message: "Only JPG, PNG, or WebP images are supported.",
+        });
+    }
+
+    try {
+        const avatarUrl = await uploadPublicObject({
+            objectKey: buildAvatarObjectKey(userId, uploadedFile.mimetype),
+            body: uploadedFile.buffer,
+            contentType: uploadedFile.mimetype,
+        });
+
+        const updatedUser = await updateUserTelegramChatId(userId, {
+            avatarUrl,
+        });
+
+        if (!updatedUser) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found.",
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: "Avatar updated successfully.",
+            data: buildAuthUserPayload(updatedUser),
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Failed to upload avatar.",
+        });
+    }
+};
+
 export { login, loginWithGoogle, register, getProfile, updateProfile };
 export { refreshToken, logout };
+export { uploadProfileAvatar };
