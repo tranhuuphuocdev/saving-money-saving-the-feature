@@ -1,12 +1,33 @@
 services:
+  smsf-gateway:
+    image: nginx:1.27-alpine
+    container_name: smsf-gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./gateway/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - smsf-fe
+      - smsf-be
+    networks:
+      - smsf-network
+
   smsf-be:
     image: tranhuuphuoc22/hthouse:smsf-be-1.0
     container_name: smsf-be
     restart: unless-stopped
     env_file: 
       - ./smsf-be/.env
+    environment:
+      DATABASE_URL: postgresql://admin:your_db_password@smsf-db:5432/smsf-db-vps
     expose:
       - "3000"
+    depends_on:
+      - smsf-db
     logging:
       driver: "json-file"
       options:
@@ -31,21 +52,37 @@ services:
     networks:
       - smsf-network
 
-  smsf-gateway:
-    image: nginx:1.27-alpine
-    container_name: smsf-gateway
+  smsf-db:
+    image: postgres:16-alpine
+    container_name: smsf-db
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: smsf-db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: your_db_password
     ports:
-      - "80:80"
+      - "5432:5432"
     volumes:
-      - ./gateway/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - smsf-fe
-      - smsf-be
+      - smsf-db-data:/var/lib/postgresql/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - smsf-network
 
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
 networks:
   smsf-network:
-    name: smsf-network
-    driver: bridge
+    external: true
+
+volumes:
+  smsf-db-data:
