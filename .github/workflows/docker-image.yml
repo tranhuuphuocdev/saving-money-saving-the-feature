@@ -25,13 +25,10 @@ jobs:
           chmod +x ./script/docker/run-build-image.sh
           ./script/docker/run-build-image.sh
 
-      - name: Create .env file for Build FE
-        working-directory: ./smsf-fe
-        run: |
-          echo "NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" > .env
-
       - name: Run build & push smsf-fe image
         working-directory: ./smsf-fe
+        env:
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         run: |
           chmod +x ./script/docker/run-build-image.sh
           ./script/docker/run-build-image.sh

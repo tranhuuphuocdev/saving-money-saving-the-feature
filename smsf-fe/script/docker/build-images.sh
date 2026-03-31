@@ -4,6 +4,6 @@ docker build -f ${DOCKER_FILE} \
     --platform=linux/amd64 \
     -t ${IMAGE_NAME}:${IMAGE_TAG} \
     -t ${IMAGE_NAME}:${IMAGE_TAG_LATEST} \
-    --build-arg ENV_FILE=.env \
+    --build-arg NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID}" \
     . \
     # --no-cache \
