@@ -1,10 +1,12 @@
 'use client';
 
-import { Camera, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, History, ImageUp, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
+import { Camera, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, History, ImageUp, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
+import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
+import { BottomNav } from '@/components/navigation/bottom-nav';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { AvatarCropModal } from '@/features/profile/components/avatar-crop-modal';
 import { AvatarPreviewModal } from '@/features/profile/components/avatar-preview-modal';
@@ -12,11 +14,12 @@ import { formatCurrencyVND } from '@/lib/formatters';
 import { getWalletLogsRequest, IWalletLogItem, IWalletLogPage } from '@/lib/calendar/api';
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
+import { TypeDashboardTab } from '@/types/dashboard';
 
 export function ProfileShell() {
     const router = useRouter();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive, uploadAvatar } = useAuth();
+    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive, dragReorderWallets, uploadAvatar } = useAuth();
 
     const [displayName, setDisplayName] = useState('');
     const [telegramChatId, setTelegramChatId] = useState('');
@@ -34,6 +37,8 @@ export function ProfileShell() {
     const [isAvatarUploading, setIsAvatarUploading] = useState(false);
 
     const [togglingWalletId, setTogglingWalletId] = useState<string | null>(null);
+        const [draggingWalletIndex, setDraggingWalletIndex] = useState<number | null>(null);
+        const [dragOverWalletIndex, setDragOverWalletIndex] = useState<number | null>(null);
     const { isVisible: isBalanceVisible, toggle: toggleBalance } = useBalanceVisible();
 
     const [expandedWalletId, setExpandedWalletId] = useState<string | null>(null);
@@ -94,6 +99,31 @@ export function ProfileShell() {
             setTogglingWalletId(null);
         }
     }, [updateWalletActive]);
+
+    const handleWalletDragStart = useCallback((walletIndex: number) => {
+        setDraggingWalletIndex(walletIndex);
+    }, []);
+
+    const handleWalletDragOver = useCallback((walletIndex: number) => {
+        setDragOverWalletIndex(walletIndex);
+    }, []);
+
+    const handleWalletDrop = useCallback(async (targetIndex: number) => {
+        if (draggingWalletIndex === null || draggingWalletIndex === targetIndex) {
+            setDraggingWalletIndex(null);
+            setDragOverWalletIndex(null);
+            return;
+        }
+
+        await dragReorderWallets(draggingWalletIndex, targetIndex);
+        setDraggingWalletIndex(null);
+        setDragOverWalletIndex(null);
+    }, [dragReorderWallets, draggingWalletIndex]);
+
+    const handleWalletDragEnd = useCallback(() => {
+        setDraggingWalletIndex(null);
+        setDragOverWalletIndex(null);
+    }, []);
 
     const openAvatarPicker = useCallback(() => {
         fileInputRef.current?.click();
@@ -235,6 +265,15 @@ export function ProfileShell() {
         }
     };
 
+    const handleNavSelect = useCallback((tab: TypeDashboardTab) => {
+        if (tab === 'menu' || tab === 'dashboard') {
+            router.push('/dashboard');
+            return;
+        }
+
+        router.push(`/dashboard?tab=${tab}`);
+    }, [router]);
+
     if (isLoading) {
         return (
             <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
@@ -246,8 +285,9 @@ export function ProfileShell() {
     }
 
     return (
+        <>
         <main className="app-shell">
-            <div className="page-container" style={{ display: 'grid', gap: 14, paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+            <div className="page-container" style={{ display: 'grid', gap: 14, paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
                 <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarFileChange} style={{ display: 'none' }} />
                 <AvatarPreviewModal
                     isOpen={isAvatarPreviewOpen}
@@ -264,26 +304,9 @@ export function ProfileShell() {
                     isSubmitting={isAvatarUploading}
                 />
                 <AppCard strong style={{ padding: 16, display: 'grid', gap: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                        <div>
-                            <div style={{ color: 'var(--muted)', fontSize: 12 }}>Thông tin người dùng</div>
-                            <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4 }}>Hồ sơ tài khoản</div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => router.push('/dashboard')}
-                            style={{
-                                minHeight: 34,
-                                padding: '0 12px',
-                                borderRadius: 10,
-                                border: '1px solid var(--border)',
-                                background: 'var(--surface-soft)',
-                                color: 'var(--foreground)',
-                                fontWeight: 700,
-                            }}
-                        >
-                            Quay lại
-                        </button>
+                    <div>
+                        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Thông tin người dùng</div>
+                        <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4 }}>Hồ sơ tài khoản</div>
                     </div>
 
                     <div style={{ borderRadius: 20, border: '1px solid var(--surface-border)', background: 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 18%, var(--surface-soft)), var(--surface-soft))', padding: 14, display: 'grid', gap: 14 }}>
@@ -314,11 +337,10 @@ export function ProfileShell() {
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>Ảnh đại diện</div>
                                 <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.displayName || user?.username || 'N/A'}</div>
-                                <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.5 }}>Nhấn vào ảnh để xem chi tiết. Bạn có thể chọn ảnh mới, kéo và scale trước khi lưu.</div>
+                                <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.5 }}>Nhấn vào ảnh để xem chi tiết hoặc đổi ảnh mới nhé!</div>
                             </div>
                         </div>
-                        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Username: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.username || 'N/A'}</span></div>
-                        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Role: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.role || 'user'}</span></div>
+                        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Tài khoản: <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{user?.username || 'N/A'}</span></div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                             <button
                                 type="button"
@@ -332,7 +354,7 @@ export function ProfileShell() {
                                     fontWeight: 700,
                                 }}
                             >
-                                Xem avatar
+                                Xem ảnh
                             </button>
                             <button
                                 type="button"
@@ -351,7 +373,7 @@ export function ProfileShell() {
                                 }}
                             >
                                 <ImageUp size={16} />
-                                Đổi avatar
+                                Đổi ảnh đại diện
                             </button>
                         </div>
                     </div>
@@ -359,14 +381,14 @@ export function ProfileShell() {
                     <div style={{ borderRadius: 14, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 10 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <UserRound size={16} color="var(--accent)" />
-                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Display name</span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Tên hiển thị</span>
                         </div>
 
                         <input
                             type="text"
                             value={displayName}
                             onChange={(event) => setDisplayName(event.target.value)}
-                            placeholder="Nhập display name"
+                            placeholder="Nhập tên hiển thị"
                             style={{
                                 width: '100%',
                                 borderRadius: 10,
@@ -467,25 +489,17 @@ export function ProfileShell() {
                                     fontSize: 13.5,
                                 }}
                             />
-                            <select
+                            <CustomSelect
                                 value={walletType}
-                                onChange={(event) => setWalletType(event.target.value)}
-                                style={{
-                                    width: '100%',
-                                    borderRadius: 10,
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'var(--surface-strong)',
-                                    color: 'var(--foreground)',
-                                    minHeight: 40,
-                                    padding: '0 10px',
-                                    fontSize: 13.5,
-                                }}
-                            >
-                                <option value="custom">Tuỳ chọn</option>
-                                <option value="cash">Tiền mặt</option>
-                                <option value="bank">Ngân hàng</option>
-                                <option value="momo">Momo</option>
-                            </select>
+                                onChange={setWalletType}
+                                options={[
+                                    { value: 'custom', label: 'Tuỳ chọn' },
+                                    { value: 'cash', label: 'Tiền mặt' },
+                                    { value: 'bank', label: 'Ngân hàng' },
+                                    { value: 'momo', label: 'Momo' },
+                                ]}
+                                placeholder="Loại ví"
+                            />
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
@@ -523,25 +537,42 @@ export function ProfileShell() {
                         <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có ví nào.</div>
                     ) : (
                         <div style={{ display: 'grid', gap: 8 }}>
-                            {wallets.map((wallet) => {
+                            {wallets.map((wallet, walletIndex) => {
                                 const isExpanded = expandedWalletId === wallet.id;
                                 const logs = walletLogsMap[wallet.id];
                                 const isLoadingLogs = isLoadingLogsFor === wallet.id;
                                 const isHovered = hoveredWalletId === wallet.id;
+                                const isDragOver = dragOverWalletIndex === walletIndex;
+                                const isDragging = draggingWalletIndex === walletIndex;
                                 return (
                                 <div
                                     key={wallet.id}
+                                    draggable
+                                    onDragStart={() => handleWalletDragStart(walletIndex)}
+                                    onDragOver={(event) => {
+                                        event.preventDefault();
+                                        handleWalletDragOver(walletIndex);
+                                    }}
+                                    onDrop={(event) => {
+                                        event.preventDefault();
+                                        void handleWalletDrop(walletIndex);
+                                    }}
+                                    onDragEnd={handleWalletDragEnd}
                                     onMouseEnter={() => setHoveredWalletId(wallet.id)}
                                     onMouseLeave={() => setHoveredWalletId((currentId) => (currentId === wallet.id ? null : currentId))}
                                     style={{
                                         borderRadius: 12,
-                                        border: isExpanded || isHovered ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)',
+                                        border: isDragOver
+                                            ? '1px dashed var(--accent)'
+                                            : (isExpanded || isHovered ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)'),
                                         background: 'var(--surface-soft)',
                                         overflow: 'hidden',
                                         opacity: wallet.isActive === false ? 0.55 : 1,
                                         boxShadow: isExpanded || isHovered ? '0 10px 24px rgba(15, 23, 42, 0.08)' : 'none',
                                         transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
-                                        transform: isHovered && !isExpanded ? 'translateY(-1px)' : 'translateY(0)',
+                                        transform: isDragging
+                                            ? 'scale(0.99)'
+                                            : (isHovered && !isExpanded ? 'translateY(-1px)' : 'translateY(0)'),
                                     }}
                                 >
                                     <div
@@ -563,13 +594,32 @@ export function ProfileShell() {
                                             cursor: 'pointer',
                                         }}
                                     >
-                                        <div>
-                                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
-                                            <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                {wallet.type}
-                                                {wallet.isActive === false && (
-                                                    <span style={{ color: '#ef4444', fontWeight: 700, textTransform: 'none' }}>· Không dùng</span>
-                                                )}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span
+                                                title="Kéo để sắp xếp"
+                                                onClick={(event) => event.stopPropagation()}
+                                                style={{
+                                                    width: 24,
+                                                    height: 24,
+                                                    borderRadius: 6,
+                                                    border: '1px solid var(--surface-border)',
+                                                    color: 'var(--muted)',
+                                                    display: 'grid',
+                                                    placeItems: 'center',
+                                                    cursor: 'grab',
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                <GripVertical size={13} />
+                                            </span>
+                                            <div>
+                                                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
+                                                <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {wallet.type}
+                                                    {wallet.isActive === false && (
+                                                        <span style={{ color: '#ef4444', fontWeight: 700, textTransform: 'none' }}>· Không dùng</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -730,5 +780,7 @@ export function ProfileShell() {
                 </AppCard>
             </div>
         </main>
+        <BottomNav activeTab="menu" onSelect={handleNavSelect} />
+    </>
     );
 }

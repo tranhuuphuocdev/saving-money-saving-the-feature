@@ -8,7 +8,7 @@ async function bootstrap() {
 
     app.listen(PORT, () => {
         void startNotificationCron();
-        startNotificationTestCron();
+        // startNotificationTestCron();
         console.log(`
 ========================================
     Server is running on port ${PORT}

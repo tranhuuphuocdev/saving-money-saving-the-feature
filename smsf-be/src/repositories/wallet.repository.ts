@@ -5,17 +5,16 @@ const getExecutor = (executor?: DbExecutor) => executor || prisma;
 
 const mapRow = (row: {
     id: string;
-    userId: string;
     name: string;
     type: string;
     amount: unknown;
     createdAt: bigint;
     updatedAt: bigint;
     isActive?: boolean;
-}): IWallet => {
+}, userId?: string): IWallet => {
     return {
         id: String(row.id),
-        userId: String(row.userId),
+        userId: userId || "",
         name: String(row.name),
         type: String(row.type || "cash"),
         balance: Number(row.amount || 0),
@@ -35,20 +34,28 @@ const upsertWallet = async (
         where: { id: wallet.id },
         create: {
             id: wallet.id,
-            userId: wallet.userId,
             name: wallet.name,
             type: wallet.type,
             amount: wallet.balance,
             createdAt: BigInt(wallet.createdAt),
             updatedAt: BigInt(wallet.updatedAt),
-                isActive: wallet.isActive !== false,
+            isActive: wallet.isActive !== false,
+            userWallets: {
+                create: {
+                    userId: wallet.userId,
+                    role: "owner",
+                    orderIndex: 0,
+                    createdAt: BigInt(wallet.createdAt),
+                    updatedAt: BigInt(wallet.updatedAt),
+                }
+            }
         },
         update: {
             name: wallet.name,
             type: wallet.type,
             amount: wallet.balance,
             updatedAt: BigInt(wallet.updatedAt),
-                isActive: wallet.isActive !== false,
+            isActive: wallet.isActive !== false,
         },
     });
 
@@ -66,30 +73,36 @@ const upsertWalletsBulk = async (wallets: IWallet[]): Promise<void> => {
 };
 
 const getWalletsByUserId = async (userId: string): Promise<IWallet[]> => {
-    const result = await prisma.wallet.findMany({
+    const result = await prisma.userWallet.findMany({
         where: { userId },
-        orderBy: { updatedAt: "desc" },
+        include: { wallet: true },
+        orderBy: { orderIndex: "asc" },
         take: 200,
     });
 
-    return result.map(mapRow);
+    return result.map(uw => mapRow(uw.wallet, userId));
 };
 
 const getWalletSummaryByUserId = async (
     userId: string,
 ): Promise<IWalletSummary> => {
-    const [walletRows, totals] = await Promise.all([
-        prisma.wallet.findMany({
+    const [userWallets, totals] = await Promise.all([
+        prisma.userWallet.findMany({
             where: { userId },
-            orderBy: { updatedAt: "desc" },
+            include: { wallet: true },
+            orderBy: { orderIndex: "asc" },
         }),
         prisma.wallet.aggregate({
-            where: { userId },
+            where: {
+                userWallets: {
+                    some: { userId }
+                }
+            },
             _sum: { amount: true },
         }),
     ]);
 
-    const wallets = walletRows.map(mapRow);
+    const wallets = userWallets.map(uw => mapRow(uw.wallet, userId));
 
     return {
         wallets,
@@ -103,24 +116,27 @@ const getWalletById = async (
     executor?: DbExecutor,
 ): Promise<IWallet | undefined> => {
     const db = getExecutor(executor);
-    const result = await db.wallet.findFirst({
-        where: { userId, id: walletId },
-        orderBy: { updatedAt: "desc" },
+    const userWallet = await db.userWallet.findFirst({
+        where: { userId, walletId },
+        include: { wallet: true }
     });
 
-    return result ? mapRow(result) : undefined;
+    return userWallet ? mapRow(userWallet.wallet, userId) : undefined;
 };
 
 const findWalletByUserAndName = async (
     userId: string,
     walletName: string,
 ): Promise<IWallet | undefined> => {
-    const result = await prisma.wallet.findFirst({
-        where: { userId, name: walletName },
-        orderBy: { updatedAt: "desc" },
+    const userWallet = await prisma.userWallet.findFirst({
+        where: { 
+            userId, 
+            wallet: { name: walletName }
+        },
+        include: { wallet: true }
     });
 
-    return result ? mapRow(result) : undefined;
+    return userWallet ? mapRow(userWallet.wallet, userId) : undefined;
 };
 
 const updateWalletBalance = async (
@@ -134,14 +150,16 @@ const updateWalletBalance = async (
         return undefined;
     }
 
-    const updatedWallet: IWallet = {
-        ...wallet,
-        balance: nextBalance,
-        updatedAt: Date.now(),
-    };
+    const db = getExecutor(executor);
+    const updatedWallet = await db.wallet.update({
+        where: { id: walletId },
+        data: {
+            amount: nextBalance,
+            updatedAt: BigInt(Date.now()),
+        }
+    });
 
-    await upsertWallet(updatedWallet, executor);
-    return updatedWallet;
+    return mapRow(updatedWallet, userId);
 };
 
 const setWalletActive = async (
@@ -154,14 +172,76 @@ const setWalletActive = async (
         return undefined;
     }
 
-    const updatedWallet: IWallet = {
-        ...wallet,
-        isActive,
-        updatedAt: Date.now(),
-    };
+    const updatedWallet = await prisma.wallet.update({
+        where: { id: walletId },
+        data: {
+            isActive,
+            updatedAt: BigInt(Date.now()),
+        }
+    });
 
-    await upsertWallet(updatedWallet);
-    return updatedWallet;
+    return mapRow(updatedWallet, userId);
+};
+
+const reorderWallet = async (
+    userId: string,
+    walletId: string,
+    newOrderIndex: number,
+): Promise<void> => {
+    const userWallets = await prisma.userWallet.findMany({
+        where: { userId },
+        orderBy: [
+            { orderIndex: "asc" },
+            { createdAt: "asc" },
+        ],
+    });
+
+    const fromIndex = userWallets.findIndex((row) => row.walletId === walletId);
+    if (fromIndex < 0) {
+        const error = new Error("Wallet not found.");
+        (error as Error & { statusCode?: number }).statusCode = 404;
+        throw error;
+    }
+
+    const boundedTargetIndex = Math.max(0, Math.min(newOrderIndex, userWallets.length - 1));
+    const reordered = [...userWallets];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(boundedTargetIndex, 0, moved);
+
+    const now = BigInt(Date.now());
+    await prisma.$transaction(
+        reordered.map((row, index) =>
+            prisma.userWallet.update({
+                where: {
+                    userId_walletId: {
+                        userId,
+                        walletId: row.walletId,
+                    },
+                },
+                data: {
+                    orderIndex: index,
+                    updatedAt: now,
+                },
+            }),
+        ),
+    );
+};
+
+const shareWalletWithUser = async (
+    walletId: string,
+    targetUserId: string,
+    role: string = "contributor",
+): Promise<void> => {
+    await prisma.userWallet.create({
+        data: {
+            userId: targetUserId,
+            walletId,
+            role,
+            orderIndex: 999, // Add to end of list
+            createdAt: BigInt(Date.now()),
+            updatedAt: BigInt(Date.now()),
+        }
+    });
 };
 
 export {
@@ -175,6 +255,8 @@ export {
     getWalletSummaryByUserId,
     createWalletLog,
     getWalletLogsByWalletId,
+    reorderWallet,
+    shareWalletWithUser,
 };
 
 const mapWalletLogRow = (row: {
@@ -223,6 +305,8 @@ const getWalletLogsByWalletId = async (
     walletId: string,
     page: number,
     limit: number,
+    startTime?: number,
+    endTime?: number,
 ): Promise<IWalletLogPage> => {
     const wallet = await getWalletById(userId, walletId);
     if (!wallet) {
@@ -232,10 +316,20 @@ const getWalletLogsByWalletId = async (
     }
 
     const offset = (page - 1) * limit;
+    const where = {
+        walletId,
+        ...(startTime || endTime ? {
+            createdAt: {
+                ...(startTime ? { gte: BigInt(startTime) } : {}),
+                ...(endTime ? { lte: BigInt(endTime) } : {}),
+            },
+        } : {}),
+    };
+
     const [total, rows] = await Promise.all([
-        prisma.walletLog.count({ where: { walletId } }),
+        prisma.walletLog.count({ where }),
         prisma.walletLog.findMany({
-            where: { walletId },
+            where,
             orderBy: { createdAt: "desc" },
             take: limit,
             skip: offset,

@@ -92,6 +92,13 @@ export async function updateWalletActiveRequest(
     return response.data.data;
 }
 
+export async function reorderWalletRequest(
+    walletId: string,
+    orderIndex: number,
+): Promise<void> {
+    await api.patch(`/wallets/${walletId}/reorder`, { orderIndex });
+}
+
 export async function getTransactionsByMonthRequest(
     month: number,
     year: number,
@@ -417,10 +424,12 @@ export async function getWalletLogsRequest(
     walletId: string,
     page = 1,
     limit = 20,
+    startTime?: number,
+    endTime?: number,
 ): Promise<IWalletLogPage> {
     const response = await api.get<IApiResponse<IWalletLogPage>>(
         `/wallets/${walletId}/logs`,
-        { params: { page, limit } },
+        { params: { page, limit, ...(startTime ? { startTime } : {}), ...(endTime ? { endTime } : {}) } },
     );
     return response.data.data;
 }

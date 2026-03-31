@@ -1,8 +1,9 @@
 'use client';
 
-import { History, LoaderCircle, WalletCards } from 'lucide-react';
+import { History, LoaderCircle, RotateCw, WalletCards } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppCard } from '@/components/common/app-card';
+import { CustomDatePicker } from '@/components/common/custom-date-picker';
 import { CustomSelect } from '@/components/common/custom-select';
 import { getWalletLogsRequest, IWalletLogItem, IWalletLogPage } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
@@ -50,9 +51,11 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
     const [walletLogs, setWalletLogs] = useState<IWalletLogPage | null>(null);
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
     const [logsError, setLogsError] = useState('');
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
 
     const sortedWallets = useMemo(
-        () => [...wallets].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0)),
+        () => wallets,
         [wallets],
     );
 
@@ -61,12 +64,12 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
         [selectedWalletId, sortedWallets],
     );
 
-    const loadWalletLogs = useCallback(async (walletId: string, page = 1, append = false) => {
+    const loadWalletLogs = useCallback(async (walletId: string, page = 1, append = false, fromTimestamp?: number, toTimestamp?: number) => {
         setIsLoadingLogs(true);
         setLogsError('');
 
         try {
-            const data = await getWalletLogsRequest(walletId, page, WALLET_LOG_PAGE_SIZE);
+            const data = await getWalletLogsRequest(walletId, page, WALLET_LOG_PAGE_SIZE, fromTimestamp, toTimestamp);
             setWalletLogs((previous) => {
                 if (append && previous) {
                     return {
@@ -99,14 +102,17 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
         });
     }, [preferredWalletId, sortedWallets]);
 
+    const fromTimestamp = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : undefined;
+    const toTimestamp = toDate ? new Date(`${toDate}T23:59:59`).getTime() : undefined;
+
     useEffect(() => {
         if (!selectedWalletId) {
             setWalletLogs(null);
             return;
         }
 
-        void loadWalletLogs(selectedWalletId);
-    }, [loadWalletLogs, selectedWalletId]);
+        void loadWalletLogs(selectedWalletId, 1, false, fromTimestamp, toTimestamp);
+    }, [loadWalletLogs, selectedWalletId, fromDate, toDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (sortedWallets.length === 0) {
         return (
@@ -132,8 +138,30 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
                         Chọn ví để xem lịch sử.
                     </div>
                 </div>
-                <div style={{ width: 42, height: 42, borderRadius: 14, display: 'grid', placeItems: 'center', background: 'var(--theme-icon-surface)', border: '1px solid var(--theme-icon-border)' }}>
-                    <WalletCards size={18} color="var(--accent)" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                        type="button"
+                        disabled={isLoadingLogs || !selectedWalletId}
+                        onClick={() => void loadWalletLogs(selectedWalletId, 1, false, fromTimestamp, toTimestamp)}
+                        title="Tải lại"
+                        style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            border: '1px solid var(--surface-border)',
+                            background: 'transparent',
+                            color: 'var(--muted)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            cursor: isLoadingLogs || !selectedWalletId ? 'not-allowed' : 'pointer',
+                            opacity: isLoadingLogs || !selectedWalletId ? 0.5 : 1,
+                        }}
+                    >
+                        <RotateCw size={15} />
+                    </button>
+                    <div style={{ width: 42, height: 42, borderRadius: 14, display: 'grid', placeItems: 'center', background: 'var(--theme-icon-surface)', border: '1px solid var(--theme-icon-border)' }}>
+                        <WalletCards size={18} color="var(--accent)" />
+                    </div>
                 </div>
             </div>
 
@@ -150,6 +178,25 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
                     }))}
                     placeholder="Chọn ví"
                 />
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Lọc theo ngày</div>
+                    {(fromDate || toDate) ? (
+                        <button
+                            type="button"
+                            onClick={() => { setFromDate(''); setToDate(''); }}
+                            style={{ fontSize: 11.5, color: 'var(--accent)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        >
+                            Xóa lọc
+                        </button>
+                    ) : null}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <CustomDatePicker value={fromDate} onChange={setFromDate} placeholder="Từ ngày" zIndex={200} />
+                    <CustomDatePicker value={toDate} onChange={setToDate} placeholder="Đến ngày" zIndex={200} />
+                </div>
             </div>
 
             {selectedWallet ? (
@@ -254,7 +301,7 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
                 <button
                     type="button"
                     disabled={isLoadingLogs || !selectedWalletId}
-                    onClick={() => void loadWalletLogs(selectedWalletId, (walletLogs.page || 1) + 1, true)}
+                    onClick={() => void loadWalletLogs(selectedWalletId, (walletLogs.page || 1) + 1, true, fromTimestamp, toTimestamp)}
                     style={{
                         minHeight: 40,
                         borderRadius: 12,

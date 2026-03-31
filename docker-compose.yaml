@@ -11,8 +11,10 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
     depends_on:
-      - smsf-fe
-      - smsf-be
+      smsf-fe:
+        condition: service_started
+      smsf-be:
+        condition: service_started
     networks:
       - smsf-network
 

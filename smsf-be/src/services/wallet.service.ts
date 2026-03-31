@@ -12,6 +12,7 @@ import {
     setWalletActive,
     createWalletLog,
     getWalletLogsByWalletId,
+    reorderWallet,
 } from "../repositories/wallet.repository";
 
 interface IWalletLogOptions {
@@ -228,8 +229,25 @@ const getWalletLogsForUser = async (
     walletId: string,
     page: number,
     limit: number,
+    startTime?: number,
+    endTime?: number,
 ): Promise<IWalletLogPage> => {
-    return getWalletLogsByWalletId(userId, walletId, page, limit);
+    return getWalletLogsByWalletId(userId, walletId, page, limit, startTime, endTime);
+};
+
+const reorderWalletForUser = async (
+    userId: string,
+    walletId: string,
+    orderIndex: number,
+): Promise<void> => {
+    const wallet = await findWalletById(userId, walletId);
+    if (!wallet) {
+        const error = new Error("Wallet not found.");
+        (error as Error & { statusCode?: number }).statusCode = 404;
+        throw error;
+    }
+
+    return reorderWallet(userId, walletId, orderIndex);
 };
 
 export {
@@ -240,4 +258,5 @@ export {
     createWalletForUser,
     setWalletActiveForUser,
     getWalletLogsForUser,
+    reorderWalletForUser,
 };

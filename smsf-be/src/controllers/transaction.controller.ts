@@ -177,6 +177,7 @@ const queryTransactions = async (
         page: query.page,
         limit: query.limit,
         category: query.category,
+        categories: query.categories,
         description: query.description,
         startTime: query.startTime,
         endTime: query.endTime,

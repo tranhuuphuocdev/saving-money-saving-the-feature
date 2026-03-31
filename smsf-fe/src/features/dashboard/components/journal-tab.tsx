@@ -135,7 +135,7 @@ const CHAT_SWIPE_SNAP_TO_EDIT =
     + CHAT_ACTION_GAP
     + CHAT_ACTION_BUTTON_WIDTH
     + CHAT_ACTION_TRAILING_PADDING;
-const AI_CHAT_AVATAR = '/avatars/avt-po-con.webp';
+const AI_CHAT_AVATAR = 'https://pub-cdc512521bc74741a949c81a9a10a378.r2.dev/avatars/bot/avatar-cho-vo-tri-11.webp';
 
 const TRANSACTION_INTENT_PATTERN = /(\d|k\b|tr\b|triệu|nghìn|ngan|đ\b|vnd|chi|thu|mua|trả|lương|xăng|đi chợ|hoa don|hoá đơn|bill)/i;
 const ANALYSIS_INTENT_PATTERN = /(phân tích|phan tich|phân thích|phan thich|nhận định|nhan dinh|liệt kê|liet ke|bất thường|bat thuong|chi tiêu|chi tieu)/i;
@@ -299,6 +299,8 @@ export function ChatTab() {
     const analyserRef = useRef<AnalyserNode | null>(null);
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const levelAnimationFrameRef = useRef<number | null>(null);
+    const voiceTranscriptRef = useRef('');
+    const shouldAutoSendVoiceRef = useRef(false);
     const recentIgnoreNextClickRef = useRef(false);
     const recentDragRef = useRef<{
         id: string;
@@ -320,10 +322,7 @@ export function ChatTab() {
 
                 const activeWallets = walletSummary.wallets.filter((w) => w.isActive !== false);
                 if (activeWallets.length > 0) {
-                    const richest = activeWallets.reduce((a, b) =>
-                        b.balance > a.balance ? b : a,
-                    );
-                    setSelectedWalletId(richest.id);
+                    setSelectedWalletId(activeWallets[0].id);
                 }
             })
             .catch(() => {
@@ -334,7 +333,7 @@ export function ChatTab() {
         return () => {
             ignore = true;
         };
-    }, []);
+    }, [user?.id]);
 
     const loadRecentTransactions = async () => {
         setIsRecentLoading(true);
@@ -490,8 +489,15 @@ export function ChatTab() {
         if (!recentDragRef.current || recentDragRef.current.id !== id) return;
 
         recentIgnoreNextClickRef.current = recentDragRef.current.hasMoved;
+        const reachedDeleteLimit = Math.abs(recentDragOffsetX) >= recentDragRef.current.maxLeft - 1;
 
-        if (Math.abs(recentDragOffsetX) > 12) {
+        if (reachedDeleteLimit) {
+            const target = recentActions.find((actionItem) => actionItem.transaction.id === id)?.transaction || null;
+            if (target) {
+                setRecentDeleteTarget(target);
+            }
+            setSwipedRecentTransactionId(null);
+        } else if (Math.abs(recentDragOffsetX) > 12) {
             setSwipedRecentTransactionId(id);
         } else {
             setSwipedRecentTransactionId(null);
@@ -530,17 +536,33 @@ export function ChatTab() {
         setVoiceLevel(0);
     };
 
-    const stopVoiceListening = () => {
+    const cleanupVoiceListening = () => {
         if (speechRecognitionRef.current) {
             speechRecognitionRef.current.onend = null;
             speechRecognitionRef.current.onerror = null;
             speechRecognitionRef.current.onresult = null;
-            speechRecognitionRef.current.stop();
             speechRecognitionRef.current = null;
         }
 
         stopVoiceLevelMeter();
         setIsVoiceListening(false);
+    };
+
+    const stopVoiceListening = (shouldAutoSend = false) => {
+        shouldAutoSendVoiceRef.current = shouldAutoSend;
+        if (speechRecognitionRef.current) {
+            speechRecognitionRef.current.stop();
+            return;
+        }
+
+        cleanupVoiceListening();
+    };
+
+    const cancelVoiceListening = () => {
+        shouldAutoSendVoiceRef.current = false;
+        voiceTranscriptRef.current = '';
+        setTextInput('');
+        stopVoiceListening(false);
     };
 
     const startVoiceListening = async () => {
@@ -601,8 +623,10 @@ export function ChatTab() {
                     transcript += String(event.results[index]?.[0]?.transcript || '');
                 }
 
-                if (transcript.trim()) {
-                    setTextInput(transcript.trim());
+                const normalized = transcript.trim();
+                if (normalized) {
+                    voiceTranscriptRef.current = normalized;
+                    setTextInput(normalized);
                 }
             };
 
@@ -611,24 +635,35 @@ export function ChatTab() {
                 if (errorType !== 'no-speech') {
                     setTopError('Không nhận diện được giọng nói. Bạn thử nói rõ hơn hoặc thử lại nhé.');
                 }
-                stopVoiceListening();
+                cleanupVoiceListening();
             };
 
             recognition.onend = () => {
-                stopVoiceListening();
+                const transcript = voiceTranscriptRef.current.trim();
+                const shouldAutoSend = shouldAutoSendVoiceRef.current;
+                shouldAutoSendVoiceRef.current = false;
+                cleanupVoiceListening();
+
+                if (transcript) {
+                    setTextInput(transcript);
+                    if (shouldAutoSend) {
+                        void handleSendText(transcript);
+                    }
+                }
             };
 
             setIsVoiceListening(true);
             recognition.start();
         } catch {
-            stopVoiceListening();
+            cleanupVoiceListening();
             setTopError('Không thể mở micro. Bạn hãy kiểm tra quyền truy cập microphone của trình duyệt.');
         }
     };
 
     useEffect(() => {
         return () => {
-            stopVoiceListening();
+            shouldAutoSendVoiceRef.current = false;
+            cleanupVoiceListening();
         };
     }, []);
 
@@ -794,12 +829,12 @@ export function ChatTab() {
         return categories.find((item) => item.type === input.type)?.id || categories[0]?.id || '';
     };
 
-    const handleSendText = async () => {
-        const normalized = textInput.trim();
+    const handleSendText = async (manualText?: string) => {
+        const normalized = (manualText ?? textInput).trim();
         if (!normalized || isBusy) return;
 
         if (isVoiceListening) {
-            stopVoiceListening();
+            stopVoiceListening(false);
         }
 
         setTopError('');
@@ -1932,7 +1967,6 @@ export function ChatTab() {
 
                 {isBusy ? (
                     <div
-                        className="chat-busy-pulse"
                         style={{
                             alignSelf: 'flex-start',
                             position: 'relative',
@@ -1952,7 +1986,11 @@ export function ChatTab() {
                                 fontSize: 12,
                             }}
                         >
-                            <LoaderCircle size={14} className="spin" />
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                <span className="chat-typing-dot" />
+                                <span className="chat-typing-dot" style={{ animationDelay: '0.16s' }} />
+                                <span className="chat-typing-dot" style={{ animationDelay: '0.32s' }} />
+                            </span>
                             Trợ lý Pô con đang phân tích...
                         </div>
                         <UserAvatar
@@ -1966,7 +2004,6 @@ export function ChatTab() {
                                 bottom: -10,
                                 border: '2px solid color-mix(in srgb, var(--theme-gradient-end) 58%, #ffffff)',
                                 boxShadow: '0 10px 20px rgba(14, 165, 233, 0.22), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)',
-                                background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(15, 23, 42, 0.95))',
                                 zIndex: 2,
                             }}
                         />
@@ -2351,8 +2388,9 @@ export function ChatTab() {
                     disabled={isBusy}
                     onClick={() => {
                         if (isVoiceListening) {
-                            stopVoiceListening();
+                            stopVoiceListening(true);
                         } else {
+                            voiceTranscriptRef.current = '';
                             void startVoiceListening();
                         }
                     }}
@@ -2419,8 +2457,30 @@ export function ChatTab() {
                         gap: 6,
                     }}
                 >
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                        Đang lắng nghe giọng nói...
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                            Đang lắng nghe giọng nói...
+                        </div>
+                        <button
+                            type="button"
+                            onClick={cancelVoiceListening}
+                            style={{
+                                minHeight: 26,
+                                borderRadius: 8,
+                                border: '1px solid color-mix(in srgb, #ef4444 58%, var(--surface-border))',
+                                background: 'color-mix(in srgb, #ef4444 12%, var(--surface-soft))',
+                                color: '#ef4444',
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '0 8px',
+                            }}
+                        >
+                            <X size={12} />
+                            Cancel
+                        </button>
                     </div>
                     <div
                         style={{

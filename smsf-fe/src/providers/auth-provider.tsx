@@ -2,7 +2,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getProfileRequest, loginRequest, loginWithGoogleRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest, uploadProfileAvatarRequest } from '@/lib/auth/api';
-import { createWalletRequest, getWalletsRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
+import { createWalletRequest, getWalletsRequest, reorderWalletRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
 import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const summary = await getWalletsRequest();
         setWallets(summary.wallets);
         setTotalWalletBalance(summary.totalAmount);
-    }, []);
+    }, [user?.id]);
 
     const refreshWalletsSafely = useCallback(async () => {
         try {
@@ -129,6 +129,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
+    const reorderWallets = useCallback(async (walletId: string) => {
+        const index = wallets.findIndex((w) => w.id === walletId);
+        if (index <= 0) {
+            return;
+        }
+
+        const next = [...wallets];
+        const [wallet] = next.splice(index, 1);
+        next.unshift(wallet);
+        setWallets(next);
+        await reorderWalletRequest(walletId, 0);
+    }, [wallets]);
+
+    const dragReorderWallets = useCallback(async (fromIndex: number, toIndex: number) => {
+        if (fromIndex === toIndex) {
+            return;
+        }
+
+        const next = [...wallets];
+        const [wallet] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, wallet);
+        setWallets(next);
+        await reorderWalletRequest(wallet.id, toIndex);
+    }, [wallets]);
+
     const logout = useCallback(async () => {
         await logoutRequest();
         setUser(null);
@@ -153,6 +178,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             refreshProfile,
             refreshWallets,
             updateWalletActive,
+            reorderWallets,
+            dragReorderWallets,
         }),
         [
             isLoading,
@@ -169,6 +196,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             user,
             wallets,
             updateWalletActive,
+            reorderWallets,
+            dragReorderWallets,
         ],
     );
 

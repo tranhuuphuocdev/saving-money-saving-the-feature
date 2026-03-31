@@ -25,6 +25,8 @@ export interface IAuthContextValue {
     refreshProfile: () => Promise<void>;
     refreshWallets: () => Promise<void>;
     updateWalletActive: (walletId: string, isActive: boolean) => Promise<void>;
+    reorderWallets: (walletId: string) => Promise<void>;
+    dragReorderWallets: (fromIndex: number, toIndex: number) => Promise<void>;
 }
 
 export interface ILoginResponse {

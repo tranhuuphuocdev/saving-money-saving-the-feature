@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BellDot, CircleDollarSign, Eye, EyeOff, House, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
+import { BellDot, CircleDollarSign, Eye, EyeOff, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
 import { AppCard } from '@/components/common/app-card';
 import { IconButton } from '@/components/common/icon-button';
 import { BottomNav } from '@/components/navigation/bottom-nav';
@@ -417,11 +417,6 @@ export function DashboardShell() {
         setActiveTab('wallets');
     }, [router]);
 
-    const handleReturnHome = useCallback(() => {
-        router.replace('/dashboard');
-        setActiveTab('dashboard');
-    }, [router]);
-
     async function handleConfirmLogout() {
         setIsLogoutConfirmOpen(false);
         setIsLoggingOut(true);
@@ -486,33 +481,6 @@ export function DashboardShell() {
     return (
         <>
             {!isDrawerView ? <FloatingTransactionBubble /> : null}
-            {isDrawerView ? (
-                <button
-                    type="button"
-                    onClick={handleReturnHome}
-                    style={{
-                        position: 'fixed',
-                        right: 16,
-                        bottom: 16,
-                        zIndex: 35,
-                        minHeight: 46,
-                        borderRadius: 999,
-                        border: '1px solid var(--chip-border)',
-                        background: 'linear-gradient(135deg, var(--theme-gradient-start), var(--theme-gradient-end))',
-                        color: 'var(--theme-nav-active)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '0 16px',
-                        fontSize: 13,
-                        fontWeight: 800,
-                        boxShadow: '0 18px 40px color-mix(in srgb, var(--primary) 28%, transparent)',
-                    }}
-                >
-                    <House size={16} />
-                    Trang chủ
-                </button>
-            ) : null}
             <SideDrawer
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}
@@ -594,7 +562,7 @@ export function DashboardShell() {
                         </div>
                     </AppCard>
 
-                    {activeTab !== 'calendar' ? (
+                    {activeTab !== 'calendar' && activeTab !== 'wallets' ? (
                         <AppCard style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12 }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                                 <div>
@@ -616,7 +584,7 @@ export function DashboardShell() {
                                     <div style={{ fontSize: 'clamp(11px, 2.8vw, 14px)', fontWeight: 900, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrencyVND(savingsMetrics?.savingsGoal ?? 0)}</div>
                                 </div>
                                 <div style={{ borderRadius: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '10px 12px' }}>
-                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Được chi/ngày</div>
+                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Tiền đi học hôm nay</div>
                                     <div style={{ fontSize: 'clamp(11px, 2.8vw, 14px)', fontWeight: 900, marginTop: 4, color: (savingsMetrics?.avgDailyAllowance ?? 0) >= 0 ? '#15803d' : '#dc2626', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         {formatCurrencyVND(savingsMetrics?.avgDailyAllowance ?? 0)}
                                     </div>
@@ -656,7 +624,7 @@ export function DashboardShell() {
                     {content}
                 </div>
             </main>
-            {!isDrawerView ? <BottomNav activeTab={activeTab} onSelect={handleNavSelect} /> : null}
+            <BottomNav activeTab={activeTab} onSelect={handleNavSelect} />
 
             {isLogoutConfirmOpen ? (
                 <div

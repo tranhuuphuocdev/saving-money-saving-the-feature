@@ -22,7 +22,7 @@ model User {
   updatedAt    BigInt   @map("updated_at")
   isDeleted    Boolean  @default(false) @map("is_deleted")
 
-  wallets       Wallet[]
+  userWallets   UserWallet[]
   transactions  Transaction[]
   budgets       Budget[]
   notifications Notification[]
@@ -52,7 +52,6 @@ model Category {
 
 model Wallet {
   id        String   @id @map("w_id")
-  userId    String   @db.Uuid @map("u_id")
   name      String   @map("w_name")
   type      String   @default("cash") @map("w_type")
   amount    Decimal  @default(0) @db.Decimal(18, 2)
@@ -60,11 +59,29 @@ model Wallet {
   updatedAt BigInt   @map("updated_at")
   isActive  Boolean  @default(true) @map("is_active")
 
-  user         User          @relation(fields: [userId], references: [id])
+  userWallets  UserWallet[]
   transactions Transaction[]
   walletLogs   WalletLog[]
 
   @@map("wallets")
+}
+
+model UserWallet {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("uw_id")
+  userId     String   @db.Uuid @map("u_id")
+  walletId   String   @map("w_id")
+  role       String   @default("owner") @map("uw_role")
+  orderIndex Int      @default(0) @map("uw_order_index")
+  createdAt  BigInt   @map("created_at")
+  updatedAt  BigInt   @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, walletId])
+  @@index([userId])
+  @@index([walletId])
+  @@map("user_wallets")
 }
 
 model Budget {
