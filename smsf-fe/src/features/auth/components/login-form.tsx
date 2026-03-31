@@ -10,14 +10,6 @@ import { useAuth } from '@/providers/auth-provider';
 
 type IGoogleCredentialResponse = { credential?: string };
 
-type IRequestError = {
-    response?: {
-        data?: {
-            message?: string;
-        };
-    };
-};
-
 type IGoogleAccounts = {
     id: {
         initialize: (options: {
@@ -45,86 +37,15 @@ type IGoogleWindow = Window & {
     };
 };
 
-type IGoogleIdentityApi = IGoogleAccounts['id'];
-
-let googleIdentityScriptPromise: Promise<IGoogleIdentityApi> | null = null;
-
-const loadGoogleIdentityScript = async (): Promise<IGoogleIdentityApi> => {
-    if (typeof window === 'undefined') {
-        throw new Error('Google Identity API is only available in the browser.');
-    }
-
-    const existingApi = (window as IGoogleWindow).google?.accounts?.id;
-    if (existingApi) {
-        return existingApi;
-    }
-
-    if (!googleIdentityScriptPromise) {
-        googleIdentityScriptPromise = new Promise<IGoogleIdentityApi>((resolve, reject) => {
-            const resolveApi = () => {
-                const googleApi = (window as IGoogleWindow).google?.accounts?.id;
-                if (googleApi) {
-                    resolve(googleApi);
-                    return;
-                }
-
-                reject(new Error('Google Identity API is unavailable.'));
-            };
-
-            const handleLoad = () => resolveApi();
-            const handleError = () => reject(new Error('Failed to load Google Identity API.'));
-            const existingScript = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
-
-            if (existingScript) {
-                if (existingScript.dataset.loaded === 'true') {
-                    resolveApi();
-                    return;
-                }
-
-                existingScript.addEventListener('load', handleLoad, { once: true });
-                existingScript.addEventListener('error', handleError, { once: true });
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = 'https://accounts.google.com/gsi/client';
-            script.async = true;
-            script.defer = true;
-            script.dataset.googleIdentity = 'true';
-            script.addEventListener(
-                'load',
-                () => {
-                    script.dataset.loaded = 'true';
-                    handleLoad();
-                },
-                { once: true },
-            );
-            script.addEventListener('error', handleError, { once: true });
-            document.head.appendChild(script);
-        }).catch((error) => {
-            googleIdentityScriptPromise = null;
-            throw error;
-        });
-    }
-
-    return googleIdentityScriptPromise;
-};
-
-const getRequestErrorMessage = (error: unknown, fallback: string): string => {
-    return (error as IRequestError)?.response?.data?.message || fallback;
-};
-
 export function LoginForm() {
     const router = useRouter();
     const { login, loginWithGoogle, isAuthenticated, isLoading } = useAuth();
     const googleButtonRef = useRef<HTMLDivElement | null>(null);
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
+    const [username, setUsername] = useState('rampo');
+    const [password, setPassword] = useState('123123');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [googleSubmitting, setGoogleSubmitting] = useState(false);
-    const [googleReady, setGoogleReady] = useState(false);
-    const [googleHint, setGoogleHint] = useState('');
 
     useEffect(() => {
         if (!isLoading && isAuthenticated) {
@@ -138,10 +59,10 @@ export function LoginForm() {
         setSubmitting(true);
 
         try {
-            await login(username.trim(), password);
+            await login(username, password);
             router.replace('/dashboard');
-        } catch (requestError) {
-            setError(getRequestErrorMessage(requestError, 'Đăng nhập thất bại. Vui lòng kiểm tra lại tài khoản hoặc mật khẩu.'));
+        } catch {
+            setError('Đăng nhập thất bại. Vui lòng kiểm tra lại tài khoản hoặc mật khẩu.');
         } finally {
             setSubmitting(false);
         }
@@ -149,80 +70,72 @@ export function LoginForm() {
 
     useEffect(() => {
         const clientId = String(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
-        if (!googleButtonRef.current) {
+        if (!clientId || !googleButtonRef.current) {
             return;
         }
 
-        if (!clientId) {
-            setGoogleReady(false);
-            setGoogleHint('Google login chưa được cấu hình ở frontend.');
-            return;
-        }
+        let isCancelled = false;
 
-        let isDisposed = false;
-
-        setGoogleReady(false);
-        setGoogleHint('Đang tải Google Sign-In...');
-
-        const initGoogleButton = async () => {
-            try {
-                const googleApi = await loadGoogleIdentityScript();
-                if (isDisposed || !googleButtonRef.current) {
-                    return;
-                }
-
-                googleButtonRef.current.innerHTML = '';
-                googleApi.initialize({
-                    client_id: clientId,
-                    callback: async (response: IGoogleCredentialResponse) => {
-                        const credential = String(response?.credential || '').trim();
-                        if (!credential) {
-                            setError('Không nhận được token Google. Vui lòng thử lại.');
-                            return;
-                        }
-
-                        setError('');
-                        setGoogleSubmitting(true);
-                        try {
-                            await loginWithGoogle(credential);
-                            router.replace('/dashboard');
-                        } catch (requestError) {
-                            setError(getRequestErrorMessage(requestError, 'Đăng nhập Google thất bại. Vui lòng thử lại.'));
-                        } finally {
-                            setGoogleSubmitting(false);
-                        }
-                    },
-                    ux_mode: 'popup',
-                });
-                googleApi.renderButton(googleButtonRef.current, {
-                    type: 'standard',
-                    shape: 'pill',
-                    theme: 'outline',
-                    text: 'signin_with',
-                    size: 'large',
-                    width: 320,
-                });
-                setGoogleReady(true);
-                setGoogleHint('');
-            } catch {
-                if (isDisposed) {
-                    return;
-                }
-
-                setGoogleReady(false);
-                setGoogleHint('Không tải được Google Sign-In. Kiểm tra Client ID hoặc cấu hình Authorized JavaScript origins.');
+        const initGoogleButton = () => {
+            if (isCancelled || !googleButtonRef.current) {
+                return;
             }
+
+            const googleApi = (window as IGoogleWindow).google?.accounts?.id;
+            if (!googleApi) {
+                return;
+            }
+
+            googleButtonRef.current.innerHTML = '';
+            googleApi.initialize({
+                client_id: clientId,
+                callback: async (response: IGoogleCredentialResponse) => {
+                    const credential = String(response?.credential || '').trim();
+                    if (!credential) {
+                        setError('Không nhận được token Google. Vui lòng thử lại.');
+                        return;
+                    }
+
+                    setError('');
+                    setGoogleSubmitting(true);
+                    try {
+                        await loginWithGoogle(credential);
+                        router.replace('/dashboard');
+                    } catch {
+                        setError('Đăng nhập Google thất bại. Vui lòng thử lại.');
+                    } finally {
+                        setGoogleSubmitting(false);
+                    }
+                },
+                ux_mode: 'popup',
+            });
+            googleApi.renderButton(googleButtonRef.current, {
+                type: 'standard',
+                shape: 'pill',
+                theme: 'outline',
+                text: 'signin_with',
+                size: 'large',
+                width: 320,
+            });
         };
 
-        void initGoogleButton();
+        const existingScript = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
+        if (existingScript) {
+            initGoogleButton();
+        } else {
+            const script = document.createElement('script');
+            script.src = 'https://accounts.google.com/gsi/client';
+            script.async = true;
+            script.defer = true;
+            script.dataset.googleIdentity = 'true';
+            script.onload = initGoogleButton;
+            document.head.appendChild(script);
+        }
 
         return () => {
-            isDisposed = true;
-            setGoogleReady(false);
+            isCancelled = true;
         };
     }, [loginWithGoogle, router]);
-
-    const googleButtonDisabled = googleSubmitting || submitting || !googleReady;
 
     return (
         <div
@@ -261,7 +174,7 @@ export function LoginForm() {
                     </div>
                     <h1 style={{ margin: '0 0 8px', fontSize: 26, lineHeight: 1.15 }}>Đăng nhập hệ thống</h1>
                     <p style={{ margin: '0 0 20px', color: 'var(--muted)', lineHeight: 1.6, fontSize: 14 }}>
-                        Đăng nhập bằng tài khoản thường hoặc Google. Luồng Google hiện dùng ID token ở frontend và backend verify trực tiếp.
+                        Giao diện tối ưu smartphone, font gọn hơn, rõ nét hơn và tập trung vào thao tác nhanh.
                     </p>
 
                     <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 14 }}>
@@ -273,7 +186,6 @@ export function LoginForm() {
                                     value={username}
                                     onChange={(event) => setUsername(event.target.value)}
                                     placeholder="Nhập username"
-                                    autoComplete="username"
                                     style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'var(--foreground)', fontSize: 14 }}
                                 />
                             </div>
@@ -288,7 +200,6 @@ export function LoginForm() {
                                     value={password}
                                     onChange={(event) => setPassword(event.target.value)}
                                     placeholder="Nhập mật khẩu"
-                                    autoComplete="current-password"
                                     style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'var(--foreground)', fontSize: 14 }}
                                 />
                             </div>
@@ -311,18 +222,13 @@ export function LoginForm() {
                                 ref={googleButtonRef}
                                 style={{
                                     minHeight: 40,
-                                    opacity: googleButtonDisabled ? 0.7 : 1,
-                                    pointerEvents: googleButtonDisabled ? 'none' : 'auto',
+                                    opacity: googleSubmitting ? 0.7 : 1,
+                                    pointerEvents: googleSubmitting ? 'none' : 'auto',
                                 }}
                             />
                             {googleSubmitting ? (
                                 <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                                     Đang xác thực Google...
-                                </div>
-                            ) : null}
-                            {!googleSubmitting && googleHint ? (
-                                <div style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.5 }}>
-                                    {googleHint}
                                 </div>
                             ) : null}
                         </div>

@@ -1,6 +1,6 @@
 {
   "name": "smsf-fe",
-  "version": "1.0.0-202603272324",
+  "version": "1.0.0-202603272324-202603311047",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3033",

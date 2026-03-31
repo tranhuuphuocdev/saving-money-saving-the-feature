@@ -1,8 +1,6 @@
 import dotenv from "dotenv";
-import path from "node:path";
 
-const ENV_PATH = path.resolve(__dirname, "../../.env");
-dotenv.config({ path: ENV_PATH, override: true });
+dotenv.config();
 
 const parseAllowedOrigins = (): string[] => {
     return String(process.env.CORS_ALLOWED_ORIGINS || "")

@@ -4,5 +4,6 @@ docker build -f ${DOCKER_FILE} \
     --platform=linux/amd64 \
     -t ${IMAGE_NAME}:${IMAGE_TAG} \
     -t ${IMAGE_NAME}:${IMAGE_TAG_LATEST} \
+    --build-arg ENV_FILE=.env \
     . \
     # --no-cache \
