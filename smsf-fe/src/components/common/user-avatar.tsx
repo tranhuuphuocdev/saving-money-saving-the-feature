@@ -2,7 +2,7 @@
 
 import { CSSProperties, useEffect, useState } from 'react';
 
-const DEFAULT_USER_AVATAR = '/avatars/worm-default.svg';
+const DEFAULT_USER_AVATAR = 'https://pub-cdc512521bc74741a949c81a9a10a378.r2.dev/avatars/bot/worm-default.svg';
 
 interface IUserAvatarProps {
     src?: string;

@@ -3,6 +3,24 @@ import { io, Socket } from "socket.io-client";
 let socketInstance: Socket | null = null;
 const socketListeners = new Map<string, Set<(data: any) => void>>();
 
+function resolveSocketBaseUrl(): string {
+    const configuredBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+
+    if (configuredBaseUrl) {
+        if (configuredBaseUrl.startsWith("http://") || configuredBaseUrl.startsWith("https://")) {
+            return configuredBaseUrl.replace(/\/api\/?$/, "");
+        }
+
+        if (configuredBaseUrl.startsWith("/")) {
+            if (typeof window !== "undefined") {
+                return window.location.origin;
+            }
+        }
+    }
+
+    return `http://localhost:${process.env.NEXT_PUBLIC_API_PORT || 3000}`;
+}
+
 function attachStoredListeners(socket: Socket) {
     for (const [event, listeners] of socketListeners.entries()) {
         for (const listener of listeners) {
@@ -38,9 +56,10 @@ export function initializeSocket(userId: string): Socket {
         return socketInstance;
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || `http://localhost:${process.env.NEXT_PUBLIC_API_PORT || 3000}`;
+    const socketBaseUrl = resolveSocketBaseUrl();
 
-    socketInstance = io(apiUrl, {
+    socketInstance = io(socketBaseUrl, {
+        path: "/api/socket.io",
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,

@@ -11,6 +11,7 @@ async function bootstrap() {
 
     const httpServer = createServer(app);
     const io = new Server(httpServer, {
+        path: "/api/socket.io",
         cors: {
             origin: process.env.FRONTEND_URL || "http://localhost:3033",
             credentials: true,
@@ -28,7 +29,7 @@ async function bootstrap() {
     Server is running on port ${PORT}
     Environment: ${config.nodeEnv}
     http://localhost:${PORT}/api/health
-    WebSocket: ws://localhost:${PORT}
+    WebSocket: ws://localhost:${PORT}/api/socket.io
 ========================================
         `);
     });
