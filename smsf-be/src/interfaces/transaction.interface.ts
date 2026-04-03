@@ -31,6 +31,8 @@ export interface ITransaction {
     timestamp: number;
     createdAt: number;
     updatedAt: number;
+    balanceBefore?: number;
+    balanceAfter?: number;
 }
 
 export interface ICreateTransactionPayload {
@@ -66,6 +68,7 @@ export interface IWalletLog {
     walletId: string;
     transactionId?: string;
     actorDisplayName?: string;
+    actorUsername?: string;
     action: string;
     amount: number;
     balanceBefore: number;

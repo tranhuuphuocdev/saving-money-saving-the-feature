@@ -122,6 +122,7 @@ export function DashboardShell() {
     const requestedFriendId = searchParams.get('friendId') || '';
     const requestedWalletId = searchParams.get('walletId') || undefined;
     const isDrawerView = searchParams.get('view') === 'drawer';
+    const notificationCount = pendingFriendRequests.length + sharedFundInvites.length + sharedFundActivities.length + messageNotifications.length;
 
     const chartPalette = [
         '#f59e0b',
@@ -658,6 +659,17 @@ export function DashboardShell() {
         router.push('/profile?tab=funds');
     }, [router]);
 
+    const syncUrlForTab = useCallback((tab: TypeDashboardTab) => {
+        if (tab === 'dashboard') {
+            router.replace('/dashboard');
+            return;
+        }
+
+        const nextSearchParams = new URLSearchParams();
+        nextSearchParams.set('tab', tab);
+        router.replace(`/dashboard?${nextSearchParams.toString()}`);
+    }, [router]);
+
     async function handleConfirmLogout() {
         setIsLogoutConfirmOpen(false);
         setIsLoggingOut(true);
@@ -724,6 +736,7 @@ export function DashboardShell() {
         }
 
         setActiveTab(tab);
+        syncUrlForTab(tab);
     }
 
     if (isLoading) {
@@ -788,27 +801,52 @@ export function DashboardShell() {
                             <div style={{ color: 'var(--accent-text)', marginTop: 5, fontWeight: 700, fontSize: 12.5 }}>Trung tâm quản lý tài chính</div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <IconButton onClick={toggleTheme}>
-                                {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
-                            </IconButton>
-                            <IconButton onClick={() => setIsNotificationOpen(true)}>
-                                <span style={{ position: 'relative', display: 'inline-flex' }}>
-                                    <Bell size={18} />
-                                    {pendingFriendRequests.length > 0 || sharedFundInvites.length > 0 || sharedFundActivities.length > 0 || messageNotifications.length > 0 ? (
+                            {!isDrawerView ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsNotificationOpen(true)}
+                                    style={{
+                                        position: 'relative',
+                                        width: 36,
+                                        height: 36,
+                                        borderRadius: 999,
+                                        border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 35%, transparent)',
+                                        background: 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 44%, var(--surface-strong)), color-mix(in srgb, var(--theme-gradient-end) 38%, var(--surface-strong)))',
+                                        color: 'var(--theme-nav-active)',
+                                        display: 'grid',
+                                        placeItems: 'center',
+                                        boxShadow: '0 10px 20px color-mix(in srgb, var(--theme-gradient-start) 26%, transparent)',
+                                        cursor: 'pointer',
+                                    }}
+                                    aria-label="Mở thông báo"
+                                >
+                                    <Bell size={17} />
+                                    {notificationCount > 0 ? (
                                         <span
                                             style={{
                                                 position: 'absolute',
-                                                right: -2,
-                                                top: -2,
-                                                width: 8,
-                                                height: 8,
-                                                borderRadius: '50%',
+                                                top: -4,
+                                                right: -4,
+                                                minWidth: 18,
+                                                height: 18,
+                                                borderRadius: 999,
+                                                padding: '0 5px',
                                                 background: '#ef4444',
-                                                boxShadow: '0 0 0 2px var(--theme-icon-surface)',
+                                                color: '#ffffff',
+                                                fontSize: 10,
+                                                fontWeight: 800,
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                border: '1px solid rgba(255, 255, 255, 0.6)',
                                             }}
-                                        />
+                                        >
+                                            {notificationCount > 99 ? '99+' : notificationCount}
+                                        </span>
                                     ) : null}
-                                </span>
+                                </button>
+                            ) : null}
+                            <IconButton onClick={toggleTheme}>
+                                {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
                             </IconButton>
                         </div>
                     </header>

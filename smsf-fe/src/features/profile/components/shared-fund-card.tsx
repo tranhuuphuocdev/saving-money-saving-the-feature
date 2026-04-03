@@ -2,6 +2,7 @@
 
 import { Check, LoaderCircle, Plus, UserPlus, Users2, X, TrendingUp, TrendingDown, LogOut, Download } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
@@ -22,9 +23,11 @@ import {
     getSharedFundRecentHistoryRequest,
 } from '@/lib/shared-fund/api';
 import {
+    offSharedFundActivity,
     offSharedFundInviteReceived,
     offSharedFundInviteResolved,
     offSharedFundMembershipUpdated,
+    onSharedFundActivity,
     onSharedFundInviteReceived,
     onSharedFundInviteResolved,
     onSharedFundMembershipUpdated,
@@ -59,6 +62,11 @@ export function SharedFundCard() {
     const [isLoadingStats, setIsLoadingStats] = useState(false);
     const [recentHistory, setRecentHistory] = useState<IWalletLogItem[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [historyLoadedPage, setHistoryLoadedPage] = useState(1);
+    const [historyHasMore, setHistoryHasMore] = useState(false);
+    const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
+    const [isRefreshingOverview, setIsRefreshingOverview] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
     const [withdrawDialog, setWithdrawDialog] = useState<{ isOpen: boolean; targetWalletId: string; amount: string }>({ isOpen: false, targetWalletId: '', amount: '' });
     const [isWithdrawing, setIsWithdrawing] = useState(false);
     const [nextOwnerId, setNextOwnerId] = useState('');
@@ -137,28 +145,68 @@ export function SharedFundCard() {
         [transferableMembers],
     );
 
-    const loadData = useCallback(async () => {
-        const [friendItems, incomingItems, outgoingItems] = await Promise.all([
-            getFriendsRequest(),
-            getIncomingSharedFundInvitesRequest(),
-            getOutgoingSharedFundInvitesRequest(),
-        ]);
+    const contributionSummary = useMemo(() => {
+        const totalIncome = contributionStats.reduce((sum, item) => sum + item.incomeTotal, 0);
+        const totalExpense = contributionStats.reduce((sum, item) => sum + item.expenseTotal, 0);
+        return {
+            totalIncome,
+            totalExpense,
+            totalFlow: totalIncome + totalExpense,
+        };
+    }, [contributionStats]);
 
-        setFriends(friendItems);
-        setIncomingInvites(incomingItems);
-        setOutgoingInvites(outgoingItems);
+    const actorDisplayNameByUsername = useMemo(() => {
+        const map: Record<string, string> = {};
 
-        const sharedWalletIds = wallets
-            .filter((wallet) => wallet.type === 'shared-fund')
-            .map((wallet) => wallet.id);
-
-        setSelectedWalletId((current) => {
-            if (current && sharedWalletIds.includes(current)) {
-                return current;
+        for (const member of members) {
+            const key = member.username.trim().toLowerCase();
+            if (key && member.displayName) {
+                map[key] = member.displayName;
             }
+        }
 
-            return sharedWalletIds[0] || '';
-        });
+        for (const friend of friends) {
+            const key = friend.friendUsername.trim().toLowerCase();
+            if (key && friend.friendName) {
+                map[key] = friend.friendName;
+            }
+        }
+
+        const selfUsername = user?.username?.trim().toLowerCase() || '';
+        if (selfUsername && user?.displayName) {
+            map[selfUsername] = user.displayName;
+        }
+
+        return map;
+    }, [friends, members, user?.displayName, user?.username]);
+
+    const loadData = useCallback(async () => {
+        setIsRefreshingOverview(true);
+        try {
+            const [friendItems, incomingItems, outgoingItems] = await Promise.all([
+                getFriendsRequest(),
+                getIncomingSharedFundInvitesRequest(),
+                getOutgoingSharedFundInvitesRequest(),
+            ]);
+
+            setFriends(friendItems);
+            setIncomingInvites(incomingItems);
+            setOutgoingInvites(outgoingItems);
+
+            const sharedWalletIds = wallets
+                .filter((wallet) => wallet.type === 'shared-fund')
+                .map((wallet) => wallet.id);
+
+            setSelectedWalletId((current) => {
+                if (current && sharedWalletIds.includes(current)) {
+                    return current;
+                }
+
+                return sharedWalletIds[0] || '';
+            });
+        } finally {
+            setIsRefreshingOverview(false);
+        }
     }, [wallets]);
 
     const loadMembers = useCallback(async (walletId: string) => {
@@ -198,19 +246,41 @@ export function SharedFundCard() {
     const loadRecentHistory = useCallback(async (walletId: string) => {
         if (!walletId) {
             setRecentHistory([]);
+            setHistoryLoadedPage(1);
+            setHistoryHasMore(false);
             return;
         }
 
         setIsLoadingHistory(true);
         try {
-            const page = await getSharedFundRecentHistoryRequest(walletId, 5);
-            setRecentHistory(page.items);
+            const result = await getSharedFundRecentHistoryRequest(walletId, 5, 1);
+            setRecentHistory(result.items);
+            setHistoryLoadedPage(1);
+            setHistoryHasMore(result.hasMore);
         } catch {
             setRecentHistory([]);
+            setHistoryHasMore(false);
         } finally {
             setIsLoadingHistory(false);
         }
     }, []);
+
+    const loadMoreHistory = useCallback(async () => {
+        if (!selectedWalletId || !historyHasMore || isLoadingMoreHistory) return;
+
+        const nextPage = historyLoadedPage + 1;
+        setIsLoadingMoreHistory(true);
+        try {
+            const result = await getSharedFundRecentHistoryRequest(selectedWalletId, 5, nextPage);
+            setRecentHistory((prev) => [...prev, ...result.items]);
+            setHistoryLoadedPage(nextPage);
+            setHistoryHasMore(result.hasMore);
+        } catch {
+            // silent
+        } finally {
+            setIsLoadingMoreHistory(false);
+        }
+    }, [selectedWalletId, historyHasMore, isLoadingMoreHistory, historyLoadedPage]);
 
     useEffect(() => {
         void loadData();
@@ -256,6 +326,10 @@ export function SharedFundCard() {
     }, [loadMembers, loadContributionStats, loadRecentHistory, selectedWalletId]);
 
     useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
         const refreshHandler = () => {
             void loadData();
             void refreshWallets();
@@ -271,6 +345,20 @@ export function SharedFundCard() {
             offSharedFundMembershipUpdated(refreshHandler);
         };
     }, [loadData, refreshWallets]);
+
+    useEffect(() => {
+        const activityHandler = () => {
+            if (selectedWalletId) {
+                void loadContributionStats(selectedWalletId);
+                void loadRecentHistory(selectedWalletId);
+            }
+        };
+
+        onSharedFundActivity(activityHandler);
+        return () => {
+            offSharedFundActivity(activityHandler);
+        };
+    }, [selectedWalletId, loadContributionStats, loadRecentHistory]);
 
     const handleCreateFund = useCallback(async () => {
         const name = fundName.trim();
@@ -646,10 +734,6 @@ export function SharedFundCard() {
                         </button>
                     </div>
                 )}
-
-                {selectedWallet && selectedMembership?.role === 'owner' ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Chủ quỹ hiện chưa thể rời quỹ trực tiếp.</div>
-                ) : null}
                 {selectedWallet && fundingWalletOptions.length === 0 ? (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Bạn cần ít nhất một ví cá nhân đang hoạt động để nhận tiền rút từ quỹ.</div>
                 ) : null}
@@ -726,6 +810,20 @@ export function SharedFundCard() {
                                 </div>
                             </div>
                         ))}
+                        {selectedWalletId ? outgoingInvites
+                            .filter((invite) => invite.walletId === selectedWalletId && invite.status === 'pending')
+                            .map((invite) => (
+                                <div key={invite.inviteId} style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, var(--surface-border) 70%, transparent)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, opacity: 0.75 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                        <UserAvatar src={invite.receiverAvatarUrl || undefined} alt={invite.receiverName} size={30} />
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{invite.receiverName}</div>
+                                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{invite.receiverUsername}</div>
+                                        </div>
+                                    </div>
+                                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>Đã mời</div>
+                                </div>
+                            )) : null}
                     </div>
                 )}
                 {selectedWallet && isLoadingMembers ? (
@@ -735,20 +833,37 @@ export function SharedFundCard() {
                 ) : null}
             </div>
 
-            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8 }}>
+            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8, minHeight: 230, transition: 'opacity 220ms ease, transform 220ms ease', opacity: isRefreshingOverview ? 0.86 : 1, transform: isRefreshingOverview ? 'translateY(2px)' : 'translateY(0)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Thống kê nhập và chi theo người</div>
                     {selectedWallet ? <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{contributionStats.length} thành viên</span> : null}
                 </div>
+
+                {selectedWallet ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                        <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, #16a34a 25%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 8%, var(--surface-base))', padding: '8px 10px' }}>
+                            <div style={{ fontSize: 10.5, color: '#15803d', fontWeight: 800 }}>Tổng nhập</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalIncome)}</div>
+                        </div>
+                        <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, #ef4444 25%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 7%, var(--surface-base))', padding: '8px 10px' }}>
+                            <div style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 800 }}>Tổng chi</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalExpense)}</div>
+                        </div>
+                        <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 22%, var(--surface-border))', background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, var(--surface-base))', padding: '8px 10px' }}>
+                            <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 800 }}>Tổng luân chuyển</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalFlow)}</div>
+                        </div>
+                    </div>
+                ) : null}
 
                 {!selectedWallet ? (
                     <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chọn quỹ để xem ai đã nạp và sử dụng quỹ.</div>
                 ) : contributionStats.length === 0 && !isLoadingStats ? (
                     <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có giao dịch nào để thống kê.</div>
                 ) : (
-                    <div style={{ display: 'grid', gap: 8, opacity: isLoadingStats ? 0.6 : 1, transition: 'opacity 160ms ease' }}>
+                    <div style={{ display: 'grid', gap: 8, opacity: isLoadingStats ? 0.72 : 1, transition: 'opacity 160ms ease' }}>
                         {contributionStats.map((item) => (
-                            <div key={item.userId} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '10px 12px', display: 'grid', gap: 8 }}>
+                            <div key={item.userId} style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '10px 12px', display: 'grid', gap: 8 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                         <UserAvatar src={item.avatarUrl || undefined} alt={item.displayName} size={30} />
@@ -761,25 +876,31 @@ export function SharedFundCard() {
                                         {item.net >= 0 ? '+' : ''}{formatCurrencyVND(item.net)}
                                     </div>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                                    <div style={{ borderRadius: 8, background: 'color-mix(in srgb, #16a34a 12%, var(--surface-base))', padding: '8px 10px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#15803d', fontWeight: 800 }}><TrendingUp size={13} /> Đã nhập quỹ</div>
-                                        <div style={{ marginTop: 4, fontSize: 13, fontWeight: 800 }}>{formatCurrencyVND(item.incomeTotal)}</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    <div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, #16a34a 30%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 10%, var(--surface-base))', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800 }}>
+                                        <TrendingUp size={13} color='#15803d' /> Nhập {formatCurrencyVND(item.incomeTotal)}
                                     </div>
-                                    <div style={{ borderRadius: 8, background: 'color-mix(in srgb, #ef4444 10%, var(--surface-base))', padding: '8px 10px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#dc2626', fontWeight: 800 }}><TrendingDown size={13} /> Đã chi quỹ</div>
-                                        <div style={{ marginTop: 4, fontSize: 13, fontWeight: 800 }}>{formatCurrencyVND(item.expenseTotal)}</div>
+                                    <div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, #ef4444 30%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 8%, var(--surface-base))', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800 }}>
+                                        <TrendingDown size={13} color='#dc2626' /> Chi {formatCurrencyVND(item.expenseTotal)}
+                                    </div>
+                                    <div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 26%, var(--surface-border))', background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, var(--surface-base))', padding: '5px 10px', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>
+                                        Tỷ trọng {contributionSummary.totalFlow > 0 ? `${Math.round(((item.incomeTotal + item.expenseTotal) * 100) / contributionSummary.totalFlow)}%` : '0%'}
                                     </div>
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
+                {selectedWallet && isLoadingStats ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 11.5 }}>
+                        <LoaderCircle size={12} className='spin' /> Đang cập nhật thống kê thành viên...
+                    </div>
+                ) : null}
             </div>
 
-            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8 }}>
+            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8, transition: 'opacity 220ms ease, transform 220ms ease', opacity: isRefreshingOverview ? 0.86 : 1, transform: isRefreshingOverview ? 'translateY(2px)' : 'translateY(0)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>5 lịch sử quỹ gần nhất</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Lịch sử quỹ gần nhất</div>
                     {selectedWallet ? <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{selectedWallet.name}</span> : null}
                 </div>
 
@@ -788,28 +909,65 @@ export function SharedFundCard() {
                 ) : recentHistory.length === 0 && !isLoadingHistory ? (
                     <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Quỹ này chưa có lịch sử biến động.</div>
                 ) : (
-                    <div style={{ display: 'grid', gap: 8, opacity: isLoadingHistory ? 0.6 : 1, transition: 'opacity 160ms ease' }}>
+                    <div style={{ display: 'grid', gap: 6, opacity: isLoadingHistory ? 0.72 : 1, transition: 'opacity 160ms ease' }}>
                         {recentHistory.map((log) => {
                             const isCredit = isWalletLogCredit(log.action);
+                            const normalizedActorUsername = log.actorUsername?.trim().toLowerCase() || '';
+                            const mappedActorDisplayName = normalizedActorUsername ? actorDisplayNameByUsername[normalizedActorUsername] : '';
+                            const rawActorDisplayName = log.actorDisplayName?.trim() || '';
+                            const actorDisplayName = mappedActorDisplayName
+                                || (rawActorDisplayName && rawActorDisplayName.toLowerCase() !== normalizedActorUsername ? rawActorDisplayName : '')
+                                || (log.actorUsername?.trim() || '');
                             return (
-                                <div key={log.id} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '10px 12px', display: 'grid', gap: 4 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                        <div style={{ fontSize: 12, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316' }}>
+                                <div key={log.id} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'grid', gap: 4 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                        <span style={{ borderRadius: 999, border: '1px solid var(--surface-border)', background: isCredit ? 'color-mix(in srgb, #16a34a 10%, var(--surface-base))' : 'color-mix(in srgb, #f97316 10%, var(--surface-base))', padding: '2px 7px', fontSize: 11, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316', flexShrink: 0 }}>
                                             {getWalletLogLabel(log.action)}
+                                        </span>
+                                        <span style={{ fontSize: 13.5, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {isCredit ? '+' : '-'}{formatCurrencyVND(log.amount)}
+                                        </span>
+                                        <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                            {formatInviteDate(log.createdAt)}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <span>{formatCurrencyVND(log.balanceBefore)}</span>
+                                        <span>→</span>
+                                        <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{formatCurrencyVND(log.balanceAfter)}</span>
+                                    </div>
+                                    {(log.description || actorDisplayName) ? (
+                                        <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {log.description ? <span style={{ marginRight: 6 }}>{log.description}</span> : null}
+                                            {actorDisplayName ? (
+                                                <span>
+                                                    bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{actorDisplayName}</span>
+                                                    {log.actorUsername && actorDisplayName.toLowerCase() !== normalizedActorUsername ? ` @${log.actorUsername}` : ''}
+                                                </span>
+                                            ) : null}
                                         </div>
-                                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{formatInviteDate(log.createdAt)}</div>
-                                    </div>
-                                    <div style={{ fontSize: 13, fontWeight: 800 }}>{formatCurrencyVND(log.amount)}</div>
-                                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                                        {formatCurrencyVND(log.balanceBefore)} → {formatCurrencyVND(log.balanceAfter)}
-                                    </div>
-                                    {log.description ? <div style={{ fontSize: 11.5, color: 'var(--foreground)' }}>{log.description}</div> : null}
-                                    {log.actorDisplayName ? <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Thực hiện bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{log.actorDisplayName}</span></div> : null}
+                                    ) : null}
                                 </div>
                             );
                         })}
+                        {historyHasMore ? (
+                            <button
+                                type='button'
+                                onClick={() => void loadMoreHistory()}
+                                disabled={isLoadingMoreHistory}
+                                style={{ borderRadius: 8, border: '1px solid var(--surface-border)', background: 'transparent', color: 'var(--muted)', padding: '6px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                            >
+                                {isLoadingMoreHistory ? <LoaderCircle size={12} className='spin' /> : null}
+                                {isLoadingMoreHistory ? 'Đang tải...' : 'Hiển thị thêm'}
+                            </button>
+                        ) : null}
                     </div>
                 )}
+                {selectedWallet && isLoadingHistory ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 11.5 }}>
+                        <LoaderCircle size={12} className='spin' /> Đang tải lịch sử quỹ...
+                    </div>
+                ) : null}
             </div>
 
             {incomingInvites.length > 0 ? (
@@ -870,23 +1028,12 @@ export function SharedFundCard() {
                 </div>
             ) : null}
 
-            {outgoingInvites.length > 0 ? (
-                <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Lời mời đã gửi</div>
-                    {outgoingInvites.slice(0, 4).map((invite) => (
-                        <div key={invite.inviteId} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', padding: '8px 10px', background: 'var(--surface-soft)', fontSize: 12.5, color: 'var(--foreground)' }}>
-                            {invite.receiverName} - {invite.walletName} ({invite.status === 'pending' ? 'Đang chờ' : invite.status === 'accepted' ? 'Đã tham gia' : 'Đã từ chối'})
-                        </div>
-                    ))}
-                </div>
-            ) : null}
-
             {errorMessage ? <div style={{ color: '#ef4444', fontSize: 12 }}>{errorMessage}</div> : null}
             {successMessage ? <div style={{ color: '#16a34a', fontSize: 12 }}>{successMessage}</div> : null}
 
             {user?.id ? null : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Đăng nhập để dùng quỹ chung.</div>}
 
-            {isInviteModalOpen ? (
+            {isMounted && isInviteModalOpen ? createPortal(
                 <>
                     <div
                         role='presentation'
@@ -895,7 +1042,7 @@ export function SharedFundCard() {
                             position: 'fixed',
                             inset: 0,
                             background: 'rgba(2, 8, 23, 0.5)',
-                            zIndex: 60,
+                            zIndex: 9000,
                         }}
                     />
                     <div
@@ -912,7 +1059,7 @@ export function SharedFundCard() {
                             border: '1px solid var(--surface-border)',
                             background: 'var(--surface-strong)',
                             boxShadow: '0 24px 80px rgba(0,0,0,0.35)',
-                            zIndex: 61,
+                            zIndex: 9001,
                             display: 'grid',
                             gridTemplateRows: 'auto auto 1fr',
                             overflow: 'hidden',
@@ -1003,7 +1150,8 @@ export function SharedFundCard() {
                             })}
                         </div>
                     </div>
-                </>
+                </>,
+                document.body,
             ) : null}
 
             {withdrawDialog.isOpen ? (

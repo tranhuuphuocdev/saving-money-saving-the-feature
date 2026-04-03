@@ -112,8 +112,28 @@ const queryTransactionsByUser = async (
         }),
     ]);
 
+    const txnIds = result.map((r) => r.id);
+    const walletLogs = txnIds.length > 0
+        ? await prisma.walletLog.findMany({
+            where: { transactionId: { in: txnIds } },
+            select: { transactionId: true, balanceBefore: true, balanceAfter: true },
+        })
+        : [];
+    const logMap = walletLogs.reduce<Record<string, { balanceBefore: number; balanceAfter: number }>>((acc, log) => {
+        if (log.transactionId) {
+            acc[log.transactionId] = {
+                balanceBefore: Number(log.balanceBefore || 0),
+                balanceAfter: Number(log.balanceAfter || 0),
+            };
+        }
+        return acc;
+    }, {});
+
     return {
-        items: result.map(mapRow),
+        items: result.map((row) => ({
+            ...mapRow(row),
+            ...logMap[row.id],
+        })),
         page,
         limit,
         total,

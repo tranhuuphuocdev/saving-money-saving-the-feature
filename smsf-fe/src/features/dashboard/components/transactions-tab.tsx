@@ -743,37 +743,46 @@ export function TransactionsTab() {
                                         cursor: isDraggingThis ? 'grabbing' : 'pointer',
                                     }}
                                 >
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center' }}>
-                                        <div
-                                            style={{
-                                                width: 42,
-                                                height: 42,
-                                                borderRadius: 13,
-                                                border: '1px solid color-mix(in srgb, var(--surface-border) 70%, transparent)',
-                                                background: 'color-mix(in srgb, var(--surface-soft) 85%, var(--surface-base))',
-                                                display: 'grid',
-                                                placeItems: 'center',
-                                                fontSize: 20,
-                                                flexShrink: 0,
-                                            }}
-                                        >
-                                            {categoryIcon}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                            <span
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    borderRadius: 999,
+                                                    padding: '4px 8px',
+                                                    background: 'var(--surface-soft)',
+                                                    border: '1px solid var(--surface-border)',
+                                                    color: isExpense ? '#f97316' : '#16a34a',
+                                                    fontSize: 11,
+                                                    fontWeight: 800,
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                <span>{categoryIcon}</span>
+                                                {categoryNameMap[transaction.category] || transaction.category}
+                                            </span>
+                                            <span style={{ fontSize: 14, fontWeight: 900, color: isExpense ? '#f97316' : '#16a34a', whiteSpace: 'nowrap' }}>
+                                                {isExpense ? '-' : '+'}{formatCurrencyVND(transaction.amount)}
+                                            </span>
                                         </div>
-
-                                        <div style={{ minWidth: 0 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {transaction.description || (categoryNameMap[transaction.category] || transaction.category)}
-                                            </div>
-                                            <div style={{ marginTop: 2, color: 'var(--muted)', fontSize: 11.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {(categoryNameMap[transaction.category] || transaction.category)} • thêm lúc {formatFullDateTime(transaction.timestamp)}
-                                            </div>
-                                        </div>
-
-                                        <div style={{ fontSize: 14.2, fontWeight: 900, color: isExpense ? '#f97316' : '#16a34a', whiteSpace: 'nowrap', paddingLeft: 6 }}>
-                                            {isExpense ? '- ' : '+ '}
-                                            {formatCurrencyVND(transaction.amount)}
-                                        </div>
+                                        <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                            {formatFullDateTime(transaction.timestamp)}
+                                        </span>
                                     </div>
+
+                                    {transaction.description ? (
+                                        <div style={{ fontSize: 13, color: 'var(--foreground)', lineHeight: 1.5, marginTop: 2 }}>
+                                            {transaction.description}
+                                        </div>
+                                    ) : null}
+
+                                    {transaction.balanceBefore !== undefined && transaction.balanceAfter !== undefined ? (
+                                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                                            {formatCurrencyVND(transaction.balanceBefore)} → {formatCurrencyVND(transaction.balanceAfter)}
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                         );

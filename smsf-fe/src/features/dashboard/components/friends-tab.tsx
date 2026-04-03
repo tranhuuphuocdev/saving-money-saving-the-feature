@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Loader2, Search, Send, UserPlus, X } from 'lucide-react';
+import { ArrowDown, Check, Loader2, Search, Send, Smile, UserPlus, X } from 'lucide-react';
 import { AppCard } from '@/components/common/app-card';
 import { UserAvatar } from '@/components/common/user-avatar';
 import {
@@ -55,6 +55,14 @@ const truncateText = (text: string, maxLength = 28): string => {
 	return `${cleaned.slice(0, maxLength).trimEnd()}...`;
 };
 
+const QUICK_EMOJIS = [
+	'😀', '😂', '😍', '🥰', '👍',
+	'🙏', '🔥', '🎉', '💸', '❤️',
+	'😎', '🤔', '🤯', '😢', '😡',
+	'🤗', '🤩',
+];
+const MESSAGE_PAGE_SIZE = 25;
+
 const upsertConversation = (
 	previous: IConversation[],
 	patch: IConversation,
@@ -91,10 +99,14 @@ export function FriendsTab() {
 	const [isSendingRequestMap, setIsSendingRequestMap] = useState<Record<string, boolean>>({});
 	const [isResolvingRequestMap, setIsResolvingRequestMap] = useState<Record<string, boolean>>({});
 	const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+	const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
 	const [isSendingMessage, setIsSendingMessage] = useState(false);
-	const [visibleTimestampMessageId, setVisibleTimestampMessageId] = useState('');
+	const [isScrolledUp, setIsScrolledUp] = useState(false);
+	const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+	const [hasMoreMessages, setHasMoreMessages] = useState(false);
+	const [messageOffset, setMessageOffset] = useState(0);
 	const chatScrollRef = useRef<HTMLDivElement | null>(null);
-	const touchHoldTimerRef = useRef<number | null>(null);
+	const isPrependingMessagesRef = useRef(false);
 	const requestedFriendId = searchParams.get('friendId') || '';
 
 	const selectedFriend = useMemo(() => {
@@ -167,14 +179,18 @@ export function FriendsTab() {
 	const loadMessages = useCallback(async (friendId: string) => {
 		if (!friendId) {
 			setMessages([]);
+			setMessageOffset(0);
+			setHasMoreMessages(false);
 			return;
 		}
 
 		setIsLoadingMessages(true);
 
 		try {
-			const items = await getMessagesRequest(friendId, 100, 0);
+			const items = await getMessagesRequest(friendId, MESSAGE_PAGE_SIZE, 0);
 			setMessages(items);
+			setMessageOffset(items.length);
+			setHasMoreMessages(items.length === MESSAGE_PAGE_SIZE);
 			markMessagesAsRead(friendId);
 			setConversations((previous) => {
 				const target = previous.find((item) => item.friendId === friendId);
@@ -211,6 +227,7 @@ export function FriendsTab() {
 	useEffect(() => {
 		const viewport = chatScrollRef.current;
 		if (!viewport) return;
+		if (isPrependingMessagesRef.current) return;
 		viewport.scrollTop = viewport.scrollHeight;
 	}, [messages, selectedFriendId, isLoadingMessages]);
 
@@ -374,6 +391,7 @@ export function FriendsTab() {
 		setIsSendingMessage(true);
 		setErrorMessage('');
 		setMessageInput('');
+		setIsEmojiPickerOpen(false);
 
 		try {
 			if (isConnected) {
@@ -395,26 +413,67 @@ export function FriendsTab() {
 		}
 	}, [isConnected, markTyping, messageInput, selectedFriendId, sendMessage]);
 
+	const loadOlderMessages = useCallback(async () => {
+		if (!selectedFriendId || isLoadingMessages || isLoadingOlderMessages || !hasMoreMessages) {
+			return;
+		}
+
+		const viewport = chatScrollRef.current;
+		const previousScrollHeight = viewport?.scrollHeight || 0;
+		const previousScrollTop = viewport?.scrollTop || 0;
+
+		setIsLoadingOlderMessages(true);
+		try {
+			const olderItems = await getMessagesRequest(selectedFriendId, MESSAGE_PAGE_SIZE, messageOffset);
+			setMessages((previous) => {
+				const existingIds = new Set(previous.map((item) => item.id));
+				const prepended = olderItems.filter((item) => !existingIds.has(item.id));
+				if (prepended.length === 0) {
+					return previous;
+				}
+
+				isPrependingMessagesRef.current = true;
+				return [...prepended, ...previous];
+			});
+
+			setMessageOffset((previous) => previous + olderItems.length);
+			setHasMoreMessages(olderItems.length === MESSAGE_PAGE_SIZE);
+
+			window.requestAnimationFrame(() => {
+				const nextViewport = chatScrollRef.current;
+				if (nextViewport && olderItems.length > 0) {
+					const nextScrollHeight = nextViewport.scrollHeight;
+					nextViewport.scrollTop = nextScrollHeight - previousScrollHeight + previousScrollTop;
+				}
+				isPrependingMessagesRef.current = false;
+			});
+		} catch {
+			setErrorMessage('Không tải thêm được tin nhắn cũ.');
+		} finally {
+			setIsLoadingOlderMessages(false);
+		}
+	}, [hasMoreMessages, isLoadingMessages, isLoadingOlderMessages, messageOffset, selectedFriendId]);
+
+	const appendEmojiToMessage = useCallback((emoji: string) => {
+		if (!selectedFriendId || isSendingMessage) return;
+
+		setMessageInput((previous) => {
+			const next = `${previous}${emoji}`;
+			markTyping(selectedFriendId, next.trim().length > 0);
+			return next;
+		});
+	}, [isSendingMessage, markTyping, selectedFriendId]);
+
 	const selectedFriendTyping = selectedFriendId ? typingFriendIds[selectedFriendId] : false;
 
 	const handleSelectFriend = useCallback((friendId: string) => {
 		setSelectedFriendId(friendId);
+		setIsEmojiPickerOpen(false);
 		const nextSearchParams = new URLSearchParams(searchParams.toString());
 		nextSearchParams.set('tab', 'friends');
 		nextSearchParams.set('friendId', friendId);
 		router.replace(`/dashboard?${nextSearchParams.toString()}`);
 	}, [router, searchParams]);
-
-	const clearTouchHoldTimer = useCallback(() => {
-		if (touchHoldTimerRef.current) {
-			window.clearTimeout(touchHoldTimerRef.current);
-			touchHoldTimerRef.current = null;
-		}
-	}, []);
-
-	useEffect(() => () => {
-		clearTouchHoldTimer();
-	}, [clearTouchHoldTimer]);
 
 	return (
 		<div style={{ display: 'grid', gap: 12 }}>
@@ -683,20 +742,40 @@ export function FriendsTab() {
 					</div>
 
 					<div
-						ref={chatScrollRef}
 						style={{
-							borderRadius: 12,
-							border: '1px solid var(--surface-border)',
-							background:
-								'linear-gradient(180deg, color-mix(in srgb, var(--theme-gradient-start) 7%, var(--surface-base)), var(--surface-base) 25%, var(--surface-base))',
-							height: 'clamp(280px, 46vh, 460px)',
-							overflowY: 'auto',
-							padding: 10,
-							display: 'flex',
-							flexDirection: 'column',
-							gap: 10,
+							position: 'relative',
+							borderRadius: 16,
+							border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 16%, var(--surface-border))',
+							background: 'linear-gradient(180deg, color-mix(in srgb, var(--theme-gradient-start) 10%, var(--surface-base)), color-mix(in srgb, var(--theme-gradient-end) 6%, var(--surface-base)))',
+							overflow: 'hidden',
 						}}
 					>
+					<div
+						ref={chatScrollRef}
+						onScroll={(e) => {
+							const el = e.currentTarget;
+							setIsScrolledUp(el.scrollHeight - el.scrollTop - el.clientHeight > 50);
+							if (el.scrollTop <= 24 && hasMoreMessages && !isLoadingOlderMessages && !isLoadingMessages) {
+								void loadOlderMessages();
+							}
+						}}
+						style={{
+							height: 'clamp(320px, 54vh, 560px)',
+							overflowY: 'auto',
+							padding: 16,
+							display: 'flex',
+							flexDirection: 'column',
+							gap: 12,
+							backgroundImage: 'radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--theme-gradient-start) 14%, transparent) 0px, transparent 130px), radial-gradient(circle at 82% 74%, color-mix(in srgb, var(--theme-gradient-end) 12%, transparent) 0px, transparent 160px)',
+						}}
+					>
+						{isLoadingOlderMessages ? (
+							<div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 6px' }}>
+								<div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--surface-border)', background: 'color-mix(in srgb, var(--surface-base) 90%, #ffffff)', fontSize: 11.5, color: 'var(--muted)' }}>
+									<Loader2 size={12} className='spin' /> Đang tải tin nhắn cũ...
+								</div>
+							</div>
+						) : null}
 						{!selectedFriend ? (
 							<div style={{ fontSize: 13, color: 'var(--muted)' }}>Chọn một người bạn để bắt đầu cuộc trò chuyện.</div>
 						) : null}
@@ -709,9 +788,11 @@ export function FriendsTab() {
 							<div style={{ fontSize: 13, color: 'var(--muted)' }}>Chưa có tin nhắn nào. Hãy nhắn câu đầu tiên.</div>
 						) : null}
 
-						{messages.map((item) => {
+						{messages.map((item, index) => {
 							const isMe = item.senderId === user?.id;
-							const isTimestampVisible = visibleTimestampMessageId === item.id;
+							const isLast = index === messages.length - 1;
+							const nextMessage = messages[index + 1];
+							const showAvatar = !nextMessage || nextMessage.senderId !== item.senderId;
 							const avatarSrc = isMe ? user?.avatarUrl : selectedFriend?.avatarUrl;
 							const avatarAlt = isMe ? (user?.displayName || user?.username || 'Bạn') : (selectedFriend?.name || 'Bạn bè');
 							return (
@@ -719,91 +800,184 @@ export function FriendsTab() {
 									key={item.id}
 									style={{
 										alignSelf: isMe ? 'flex-end' : 'flex-start',
-										maxWidth: 'min(92%, 620px)',
+										maxWidth: 'min(88%, 620px)',
 										position: 'relative',
-										paddingLeft: isMe ? 0 : 12,
-										paddingRight: isMe ? 12 : 0,
-									}}
-									onMouseEnter={() => setVisibleTimestampMessageId(item.id)}
-									onMouseLeave={() => setVisibleTimestampMessageId((current) => (current === item.id ? '' : current))}
-									onTouchStart={() => {
-										clearTouchHoldTimer();
-										touchHoldTimerRef.current = window.setTimeout(() => {
-											setVisibleTimestampMessageId(item.id);
-										}, 320);
-									}}
-									onTouchEnd={() => {
-										clearTouchHoldTimer();
-										setVisibleTimestampMessageId((current) => (current === item.id ? '' : current));
-									}}
-									onTouchCancel={() => {
-										clearTouchHoldTimer();
-										setVisibleTimestampMessageId((current) => (current === item.id ? '' : current));
+										paddingLeft: isMe ? 0 : showAvatar ? 12 : 0,
+										paddingRight: isMe ? (showAvatar ? 12 : 0) : 0,
+										paddingBottom: isLast ? 14 : 0,
 									}}
 								>
 									<div
 										style={{
-											borderRadius: 10,
-											border: isMe ? 'none' : '1px solid color-mix(in srgb, var(--theme-gradient-start) 22%, var(--surface-border))',
+											borderRadius: 18,
+											border: isMe ? '1px solid color-mix(in srgb, var(--theme-gradient-end) 40%, transparent)' : '1px solid color-mix(in srgb, var(--surface-border) 85%, #ffffff)',
 											background: isMe
-												? 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 42%, var(--chip-bg)), color-mix(in srgb, var(--theme-gradient-end) 42%, var(--chip-bg)))'
-												: 'linear-gradient(135deg, color-mix(in srgb, var(--surface-strong) 80%, #ffffff), var(--surface-strong))',
+												? 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 58%, #2563eb), color-mix(in srgb, var(--theme-gradient-end) 54%, #7c3aed))'
+												: 'linear-gradient(160deg, color-mix(in srgb, var(--surface-strong) 92%, #ffffff), color-mix(in srgb, #ffffff 66%, var(--surface-strong)))',
 											color: isMe ? 'var(--theme-nav-active)' : 'var(--foreground)',
-											padding: '7px 10px',
+											padding: '9px 13px',
 											boxShadow: isMe
-												? '0 12px 24px color-mix(in srgb, var(--theme-gradient-start) 25%, transparent)'
-												: '0 8px 20px rgba(15, 23, 42, 0.08)',
-											display: 'grid',
-											gap: 3,
+												? '0 12px 24px color-mix(in srgb, var(--theme-gradient-start) 32%, transparent)'
+												: '0 8px 18px rgba(15, 23, 42, 0.11)',
 										}}
 									>
-										<div style={{ fontSize: 11.4, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.content}</div>
+										<div style={{ fontSize: 13, lineHeight: 1.45, fontWeight: 560, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.content}</div>
+									</div>
+									{isLast ? (
 										<div
 											style={{
+												position: 'absolute',
+												bottom: 0,
+												[isMe ? 'right' : 'left']: 12,
 												fontSize: 10,
-												opacity: isTimestampVisible ? 0.78 : 0,
-												textAlign: 'right',
-												minHeight: 12,
-												pointerEvents: 'none',
-												transition: 'opacity 130ms ease',
+												color: 'var(--muted)',
+												opacity: 0.75,
+												whiteSpace: 'nowrap',
 											}}
 										>
 											{formatDateTime(item.createdAt)}
 										</div>
-									</div>
-									<UserAvatar
-										src={avatarSrc || undefined}
-										alt={avatarAlt}
-										size={26}
-										radius="50%"
-										style={{
-											position: 'absolute',
-											bottom: -10,
-											left: isMe ? 'auto' : -10,
-											right: isMe ? -10 : 'auto',
-											border: isMe
-												? '2px solid color-mix(in srgb, var(--theme-gradient-start) 62%, #ffffff)'
-												: '2px solid color-mix(in srgb, var(--theme-gradient-end) 58%, #ffffff)',
-											boxShadow: isMe
-												? '0 10px 20px rgba(37, 99, 235, 0.26), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)'
-												: '0 10px 20px rgba(14, 165, 233, 0.22), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)',
-											background: isMe
-												? 'linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(15, 23, 42, 0.95))'
-												: 'linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(15, 23, 42, 0.95))',
-											zIndex: 2,
-										}}
-									/>
+									) : null}
+									{showAvatar ? (
+										<UserAvatar
+											src={avatarSrc || undefined}
+											alt={avatarAlt}
+											size={26}
+											radius="50%"
+											style={{
+												position: 'absolute',
+												bottom: isLast ? 14 : -10,
+												left: isMe ? 'auto' : -10,
+												right: isMe ? -10 : 'auto',
+												border: isMe
+													? '2px solid color-mix(in srgb, var(--theme-gradient-start) 62%, #ffffff)'
+													: '2px solid color-mix(in srgb, var(--theme-gradient-end) 58%, #ffffff)',
+												boxShadow: isMe
+													? '0 10px 20px rgba(37, 99, 235, 0.26), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)'
+													: '0 10px 20px rgba(14, 165, 233, 0.22), 0 0 0 3px color-mix(in srgb, var(--surface-strong) 82%, transparent)',
+												background: isMe
+													? 'linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(15, 23, 42, 0.95))'
+													: 'linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(15, 23, 42, 0.95))',
+												zIndex: 2,
+											}}
+										/>
+									) : null}
 								</div>
 							);
 						})}
+						{selectedFriend && selectedFriendTyping ? (
+							<div style={{ alignSelf: 'flex-start', marginLeft: 2 }}>
+								<div
+									style={{
+										borderRadius: 999,
+										padding: '7px 12px',
+										fontSize: 12,
+										color: 'var(--muted)',
+										background: 'color-mix(in srgb, var(--surface-strong) 86%, #ffffff)',
+										border: '1px solid color-mix(in srgb, var(--surface-border) 88%, #ffffff)',
+									}}
+								>
+									{selectedFriend.name} đang nhập...
+								</div>
+							</div>
+						) : null}
 					</div>
-
-					{selectedFriendTyping ? (
-						<div style={{ fontSize: 12, color: 'var(--muted)' }}>{selectedFriend?.name} đang nhập...</div>
+					{isScrolledUp && messages.length > 0 ? (
+						<button
+							type='button'
+							onClick={() => { chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' }); }}
+							style={{
+								position: 'absolute',
+								bottom: 8,
+								right: 8,
+								zIndex: 10,
+								width: 28,
+								height: 28,
+								borderRadius: '50%',
+								border: 'none',
+								background: 'linear-gradient(135deg, var(--theme-gradient-start), var(--theme-gradient-end))',
+								boxShadow: '0 4px 12px color-mix(in srgb, var(--theme-gradient-start) 40%, transparent)',
+								color: '#fff',
+								display: 'grid',
+								placeItems: 'center',
+								cursor: 'pointer',
+							}}
+						>
+							<ArrowDown size={13} strokeWidth={2.5} />
+						</button>
 					) : null}
+				</div>
 
-					<form onSubmit={handleSubmitMessage} style={{ display: 'flex', gap: 8 }}>
-						<input
+					<form onSubmit={handleSubmitMessage} style={{ position: 'relative', display: 'grid', gap: 8 }}>
+						{isEmojiPickerOpen && selectedFriend ? (
+							<div
+								style={{
+									position: 'absolute',
+									bottom: 58,
+									left: 0,
+									zIndex: 20,
+									display: 'grid',
+									gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+									gap: 8,
+									padding: 10,
+									borderRadius: 14,
+									border: '1px solid var(--surface-border)',
+									background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 90%, #ffffff), var(--surface-base))',
+									boxShadow: '0 18px 35px rgba(15, 23, 42, 0.18)',
+								}}
+							>
+								{QUICK_EMOJIS.map((emoji) => (
+									<button
+										key={emoji}
+										type="button"
+										onClick={() => appendEmojiToMessage(emoji)}
+										style={{
+											width: 32,
+											height: 32,
+											borderRadius: 10,
+											border: '1px solid transparent',
+											background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, transparent)',
+											fontSize: 18,
+											cursor: 'pointer',
+										}}
+									>
+										{emoji}
+									</button>
+								))}
+							</div>
+						) : null}
+
+						<div
+							style={{
+								display: 'flex',
+								gap: 8,
+								padding: 6,
+								borderRadius: 14,
+								border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 18%, var(--surface-border))',
+								background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 85%, #ffffff), var(--surface-base))',
+							}}
+						>
+							<button
+								type="button"
+								onClick={() => setIsEmojiPickerOpen((previous) => !previous)}
+								disabled={!selectedFriend || isSendingMessage}
+								style={{
+									width: 42,
+									height: 42,
+									borderRadius: 10,
+									border: '1px solid var(--surface-border)',
+									background: isEmojiPickerOpen ? 'color-mix(in srgb, var(--theme-gradient-start) 20%, transparent)' : 'transparent',
+									color: 'var(--foreground)',
+									display: 'grid',
+									placeItems: 'center',
+									cursor: !selectedFriend || isSendingMessage ? 'not-allowed' : 'pointer',
+								}}
+								aria-label="Chọn emoji"
+							>
+								<Smile size={18} />
+							</button>
+
+							<input
 							value={messageInput}
 							onChange={(event) => {
 								const nextValue = event.target.value;
@@ -816,6 +990,11 @@ export function FriendsTab() {
 								if (!selectedFriendId) return;
 								markTyping(selectedFriendId, false);
 							}}
+							onFocus={() => {
+								if (!selectedFriend) {
+									setIsEmojiPickerOpen(false);
+								}
+							}}
 							disabled={!selectedFriend || isSendingMessage}
 							placeholder={selectedFriend ? 'Nhập tin nhắn...' : 'Chọn bạn bè trước'}
 							style={{
@@ -825,26 +1004,29 @@ export function FriendsTab() {
 								border: '1px solid var(--surface-border)',
 								background: 'var(--surface)',
 								color: 'var(--foreground)',
-								padding: '0 12px',
+								padding: '0 14px',
+								fontSize: 13,
 							}}
 						/>
-						<button
+							<button
 							type="submit"
 							disabled={!selectedFriend || isSendingMessage || !messageInput.trim()}
 							style={{
 								width: 42,
 								height: 42,
 								borderRadius: 10,
-								border: '1px solid var(--surface-border)',
-								background: 'transparent',
-								color: 'var(--foreground)',
+								border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 24%, var(--surface-border))',
+								background: 'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-start) 38%, var(--surface-strong)), color-mix(in srgb, var(--theme-gradient-end) 34%, var(--surface-strong)))',
+								color: 'var(--theme-nav-active)',
 								display: 'grid',
 								placeItems: 'center',
 								cursor: !selectedFriend || isSendingMessage || !messageInput.trim() ? 'not-allowed' : 'pointer',
+								opacity: !selectedFriend || isSendingMessage || !messageInput.trim() ? 0.6 : 1,
 							}}
 						>
 							<Send size={16} />
 						</button>
+						</div>
 					</form>
 				</AppCard>
 			</div>

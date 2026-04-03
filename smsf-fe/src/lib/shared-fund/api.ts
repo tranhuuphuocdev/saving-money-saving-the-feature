@@ -81,10 +81,10 @@ export async function withdrawSharedFundRequest(payload: {
     return response.data.data!;
 }
 
-export async function getSharedFundRecentHistoryRequest(walletId: string, limit = 5): Promise<IWalletLogPage> {
+export async function getSharedFundRecentHistoryRequest(walletId: string, limit = 5, page = 1): Promise<IWalletLogPage> {
     const response = await api.get<IApiResponse<IWalletLogPage>>(
         `/wallets/${walletId}/logs`,
-        { params: { page: 1, limit } },
+        { params: { page, limit } },
     );
     return response.data.data!;
 }

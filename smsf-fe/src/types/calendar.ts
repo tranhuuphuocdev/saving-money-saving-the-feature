@@ -21,6 +21,8 @@ export interface ITransaction {
     timestamp: number;
     createdAt?: number;
     updatedAt?: number;
+    balanceBefore?: number;
+    balanceAfter?: number;
 }
 
 export interface ICalendarTransaction extends ITransaction {

@@ -413,6 +413,7 @@ export interface IWalletLogItem {
     walletId: string;
     transactionId?: string;
     actorDisplayName?: string;
+    actorUsername?: string;
     action: string;
     amount: number;
     balanceBefore: number;
