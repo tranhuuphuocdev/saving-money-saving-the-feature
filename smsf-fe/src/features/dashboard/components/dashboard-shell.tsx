@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BellDot, CircleDollarSign, Eye, EyeOff, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
+import { Bell, CircleDollarSign, Eye, EyeOff, LoaderCircle, MoonStar, Sparkles, SunMedium, TriangleAlert } from 'lucide-react';
 import { AppCard } from '@/components/common/app-card';
 import { IconButton } from '@/components/common/icon-button';
 import { BottomNav } from '@/components/navigation/bottom-nav';
 import { NotificationDrawer } from '@/components/navigation/notification-drawer';
 import { SideDrawer } from '@/components/navigation/side-drawer';
 import { ExpenseDonutCard } from '@/features/dashboard/components/charts/expense-donut-card';
+import { FriendsTab } from '@/features/dashboard/components/friends-tab';
+import { InitialWalletSetupModal } from '@/features/dashboard/components/initial-wallet-setup-modal';
 import { SavingsRingCard } from '@/features/dashboard/components/charts/savings-ring-card';
 import { SpendingTrendCard } from '@/features/dashboard/components/charts/spending-trend-card';
 import { RecentTransactionsCard } from '@/features/dashboard/components/recent-transactions-card';
@@ -19,13 +21,36 @@ import { ChatTab } from '@/features/dashboard/components/journal-tab';
 import { FloatingTransactionBubble } from '@/components/common/floating-transaction-bubble';
 import { getCategoriesRequest, queryTransactionsRequest, getSavingsRateRequest, getSpendingTrendRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
+import {
+    acceptFriendRequestRequest,
+    getConversationsRequest,
+    getPendingFriendRequestsRequest,
+    rejectFriendRequestRequest,
+} from '@/lib/messages/api';
 import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
+import { getIncomingSharedFundInvitesRequest, acceptSharedFundInviteRequest, rejectSharedFundInviteRequest } from '@/lib/shared-fund/api';
+import {
+    offFriendRequestReceived,
+    offFriendRequestResolved,
+    offMessageReceived,
+    offSharedFundActivity,
+    offSharedFundInviteReceived,
+    offSharedFundInviteResolved,
+    onFriendRequestReceived,
+    onFriendRequestResolved,
+    onMessageReceived,
+    onSharedFundActivity,
+    onSharedFundInviteReceived,
+    onSharedFundInviteResolved,
+} from '@/lib/socket-io';
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { ICategoryItem } from '@/types/calendar';
 import { IExpenseCategoryItem, IRecentTransaction, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
-import { ICreateNotificationPayload, INotificationItem, IPayNotificationPayload } from '@/types/notification';
+import { IConversation, IDirectMessage, IFriendRequest } from '@/types/messages';
+import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem } from '@/types/notification';
+import { ISharedFundInviteItem } from '@/types/shared-fund';
 
 function PlaceholderPanel({ title, description }: { title: string; description: string }) {
     return (
@@ -39,18 +64,31 @@ function PlaceholderPanel({ title, description }: { title: string; description: 
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 function getDashboardTabFromSearch(tab: string | null): TypeDashboardTab {
-    if (tab === 'transactions' || tab === 'calendar' || tab === 'wallets' || tab === 'chat') {
+    if (tab === 'transactions' || tab === 'calendar' || tab === 'wallets' || tab === 'chat' || tab === 'friends') {
         return tab;
     }
 
     return 'dashboard';
 }
 
+function buildMessageNotificationFromConversation(conversation: IConversation): IMessageNotificationItem {
+    return {
+        id: `inbox-${conversation.friendId}`,
+        senderId: conversation.friendId,
+        senderName: conversation.friendName,
+        senderUsername: conversation.friendUsername,
+        senderAvatarUrl: conversation.friendAvatarUrl,
+        content: conversation.lastMessage,
+        createdAt: conversation.lastMessageTime,
+        unreadCount: conversation.unreadCount,
+    };
+}
+
 export function DashboardShell() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialActiveTab = getDashboardTabFromSearch(searchParams.get('tab'));
-    const { isAuthenticated, isLoading, logout, refreshWallets, user, totalWalletBalance, wallets } = useAuth();
+    const { isAuthenticated, isLoading, logout, refreshWallets, user, totalWalletBalance, wallets, requiresInitialWalletSetup, initializeWalletSetup } = useAuth();
     const { theme, toggleTheme } = useTheme();
     const { isVisible: isBalanceVisible, toggle: toggleBalance } = useBalanceVisible();
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -60,6 +98,10 @@ export function DashboardShell() {
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
     const [isRecurringLoading, setIsRecurringLoading] = useState(false);
     const [paymentNotifications, setPaymentNotifications] = useState<INotificationItem[]>([]);
+    const [pendingFriendRequests, setPendingFriendRequests] = useState<IFriendRequest[]>([]);
+    const [sharedFundInvites, setSharedFundInvites] = useState<ISharedFundInviteItem[]>([]);
+    const [sharedFundActivities, setSharedFundActivities] = useState<ISharedFundActivityNotificationItem[]>([]);
+    const [messageNotifications, setMessageNotifications] = useState<IMessageNotificationItem[]>([]);
     const [expenseNotificationCategories, setExpenseNotificationCategories] = useState<ICategoryItem[]>([]);
     const [isPaymentNotificationsLoading, setIsPaymentNotificationsLoading] = useState(false);
     const [isFirstCalendarLoading, setIsFirstCalendarLoading] = useState(false);
@@ -69,11 +111,15 @@ export function DashboardShell() {
     const [monthLabel, setMonthLabel] = useState('');
     const [savingsMetrics, setSavingsMetrics] = useState<ISavingsRateData | null>(null);
     const [spendingTrendData, setSpendingTrendData] = useState<ISpendingTrendData | null>(null);
+    const [initialSetupError, setInitialSetupError] = useState('');
+    const [isInitialSetupSubmitting, setIsInitialSetupSubmitting] = useState(false);
     const firstCalendarDelayTimerRef = useRef<number | null>(null);
     const calendarRevealTimerRef = useRef<number | null>(null);
 
     const QUERY_LIMIT = 100;
     const requestedTab = searchParams.get('tab');
+    const requestedPanel = searchParams.get('panel');
+    const requestedFriendId = searchParams.get('friendId') || '';
     const requestedWalletId = searchParams.get('walletId') || undefined;
     const isDrawerView = searchParams.get('view') === 'drawer';
 
@@ -107,6 +153,40 @@ export function DashboardShell() {
             setIsPaymentNotificationsLoading(false);
         }
     }, []);
+
+    const fetchPendingFriendRequests = useCallback(async () => {
+        try {
+            const requestItems = await getPendingFriendRequestsRequest();
+            setPendingFriendRequests(requestItems);
+        } catch {
+            setPendingFriendRequests([]);
+        }
+    }, []);
+
+    const fetchSharedFundInvites = useCallback(async () => {
+        try {
+            const inviteItems = await getIncomingSharedFundInvitesRequest();
+            setSharedFundInvites(inviteItems.filter((item) => item.status === 'pending'));
+        } catch {
+            setSharedFundInvites([]);
+        }
+    }, []);
+
+    const fetchUnreadMessageNotifications = useCallback(async () => {
+        try {
+            const conversationItems = await getConversationsRequest();
+            const unreadItems = conversationItems
+                .filter((item) => item.unreadCount > 0)
+                .filter((item) => !(activeTab === 'friends' && requestedFriendId === item.friendId))
+                .map(buildMessageNotificationFromConversation)
+                .sort((left, right) => right.createdAt - left.createdAt)
+                .slice(0, 30);
+
+            setMessageNotifications(unreadItems);
+        } catch {
+            setMessageNotifications([]);
+        }
+    }, [activeTab, requestedFriendId]);
 
     const fetchRecentTransactions = useCallback(async () => {
         try {
@@ -288,13 +368,27 @@ export function DashboardShell() {
     }, [requestedTab]);
 
     useEffect(() => {
+        if (requestedPanel !== 'menu') {
+            return;
+        }
+
+        setActiveTab('dashboard');
+        setIsDrawerOpen(true);
+        router.replace('/dashboard');
+    }, [requestedPanel, router]);
+
+    useEffect(() => {
         if (!isAuthenticated) {
+            setMessageNotifications([]);
             return;
         }
 
         void fetchRecentTransactions();
         void fetchPaymentNotifications();
-    }, [fetchPaymentNotifications, fetchRecentTransactions, isAuthenticated]);
+        void fetchPendingFriendRequests();
+        void fetchSharedFundInvites();
+        void fetchUnreadMessageNotifications();
+    }, [fetchPaymentNotifications, fetchPendingFriendRequests, fetchRecentTransactions, fetchSharedFundInvites, fetchUnreadMessageNotifications, isAuthenticated]);
 
     useEffect(() => {
         const handler = () => void fetchRecentTransactions();
@@ -308,6 +402,96 @@ export function DashboardShell() {
             window.removeEventListener('notification:changed', notificationHandler);
         };
     }, [fetchPaymentNotifications, fetchRecentTransactions]);
+
+    useEffect(() => {
+        if (!isAuthenticated) {
+            return;
+        }
+
+        const friendRequestHandler = () => void fetchPendingFriendRequests();
+        const sharedFundHandler = () => void fetchSharedFundInvites();
+        const sharedFundActivityHandler = (item: ISharedFundActivityNotificationItem) => {
+            setSharedFundActivities((previous) => [item, ...previous.filter((current) => current.id !== item.id)].slice(0, 30));
+        };
+        onFriendRequestReceived(friendRequestHandler);
+        onFriendRequestResolved(friendRequestHandler);
+        onSharedFundInviteReceived(sharedFundHandler);
+        onSharedFundInviteResolved(sharedFundHandler);
+        onSharedFundActivity(sharedFundActivityHandler);
+
+        const intervalId = window.setInterval(() => {
+            void fetchPendingFriendRequests();
+            void fetchSharedFundInvites();
+        }, 10000);
+
+        return () => {
+            offFriendRequestReceived(friendRequestHandler);
+            offFriendRequestResolved(friendRequestHandler);
+            offSharedFundInviteReceived(sharedFundHandler);
+            offSharedFundInviteResolved(sharedFundHandler);
+            offSharedFundActivity(sharedFundActivityHandler);
+            window.clearInterval(intervalId);
+        };
+    }, [fetchPendingFriendRequests, fetchSharedFundInvites, isAuthenticated]);
+
+    useEffect(() => {
+        const handleMessageNotification = async (message: IDirectMessage) => {
+            if (!user?.id || message.senderId === user.id) {
+                return;
+            }
+
+            if (activeTab === 'friends' && requestedFriendId === message.senderId) {
+                return;
+            }
+
+            let senderName = 'Bạn bè';
+            let senderUsername = '';
+            let senderAvatarUrl: string | null = null;
+
+            try {
+                const conversationItems = await getConversationsRequest();
+                const senderConversation = conversationItems.find((item) => item.friendId === message.senderId);
+                if (senderConversation) {
+                    senderName = senderConversation.friendName;
+                    senderUsername = senderConversation.friendUsername;
+                    senderAvatarUrl = senderConversation.friendAvatarUrl;
+                }
+            } catch {
+                // Keep fallback sender info when conversation metadata cannot be loaded.
+            }
+
+            setMessageNotifications((previous) => {
+                const existingItem = previous.find((item) => item.senderId === message.senderId);
+                const nextItem: IMessageNotificationItem = {
+                    id: existingItem?.id || `inbox-${message.senderId}`,
+                    senderId: message.senderId,
+                    senderName,
+                    senderUsername,
+                    senderAvatarUrl,
+                    content: message.content,
+                    createdAt: message.createdAt,
+                    unreadCount: Math.max((existingItem?.unreadCount || 0) + 1, 1),
+                };
+
+                return [nextItem, ...previous.filter((item) => item.senderId !== message.senderId)]
+                    .sort((left, right) => right.createdAt - left.createdAt)
+                    .slice(0, 30);
+            });
+        };
+
+        onMessageReceived(handleMessageNotification);
+        return () => {
+            offMessageReceived(handleMessageNotification);
+        };
+    }, [activeTab, requestedFriendId, user?.id]);
+
+    useEffect(() => {
+        if (activeTab !== 'friends' || !requestedFriendId) {
+            return;
+        }
+
+        setMessageNotifications((previous) => previous.filter((item) => item.senderId !== requestedFriendId));
+    }, [activeTab, requestedFriendId]);
 
     const handleCreatePaymentNotification = useCallback(
         async (payload: ICreateNotificationPayload) => {
@@ -334,6 +518,41 @@ export function DashboardShell() {
         },
         [],
     );
+
+    const handleAcceptFriendRequest = useCallback(async (requestId: string) => {
+        await acceptFriendRequestRequest(requestId);
+        await fetchPendingFriendRequests();
+    }, [fetchPendingFriendRequests]);
+
+    const handleRejectFriendRequest = useCallback(async (requestId: string) => {
+        await rejectFriendRequestRequest(requestId);
+        await fetchPendingFriendRequests();
+    }, [fetchPendingFriendRequests]);
+
+    const handleAcceptSharedFundInvite = useCallback(async (inviteId: string) => {
+        await acceptSharedFundInviteRequest(inviteId);
+        await Promise.all([fetchSharedFundInvites(), refreshWallets()]);
+    }, [fetchSharedFundInvites, refreshWallets]);
+
+    const handleRejectSharedFundInvite = useCallback(async (inviteId: string) => {
+        await rejectSharedFundInviteRequest(inviteId);
+        await fetchSharedFundInvites();
+    }, [fetchSharedFundInvites]);
+
+    const handleReplyMessageNotification = useCallback((notificationId: string, senderId: string) => {
+        setMessageNotifications((previous) => previous.filter((item) => item.id !== notificationId));
+
+        const nextSearchParams = new URLSearchParams();
+        nextSearchParams.set('tab', 'friends');
+        nextSearchParams.set('friendId', senderId);
+        router.replace(`/dashboard?${nextSearchParams.toString()}`);
+        setActiveTab('friends');
+        setIsNotificationOpen(false);
+    }, [router]);
+
+    const handleHideMessageNotification = useCallback((notificationId: string) => {
+        setMessageNotifications((previous) => previous.filter((item) => item.id !== notificationId));
+    }, []);
 
     useEffect(() => {
         return () => {
@@ -368,6 +587,8 @@ export function DashboardShell() {
         content = <TransactionsTab />;
     } else if (activeTab === 'chat') {
         content = <ChatTab />;
+    } else if (activeTab === 'friends') {
+        content = <FriendsTab />;
     } else if (activeTab === 'calendar') {
         content = (
             <div style={{ position: 'relative' }}>
@@ -417,6 +638,17 @@ export function DashboardShell() {
         setActiveTab('wallets');
     }, [router]);
 
+    const handleOpenFriendsTab = useCallback(() => {
+        const nextSearchParams = new URLSearchParams();
+        nextSearchParams.set('tab', 'friends');
+        router.replace(`/dashboard?${nextSearchParams.toString()}`);
+        setActiveTab('friends');
+    }, [router]);
+
+    const handleOpenSharedFunds = useCallback(() => {
+        router.push('/profile?tab=funds');
+    }, [router]);
+
     async function handleConfirmLogout() {
         setIsLogoutConfirmOpen(false);
         setIsLoggingOut(true);
@@ -426,6 +658,23 @@ export function DashboardShell() {
             router.replace('/login');
         } finally {
             setIsLoggingOut(false);
+        }
+    }
+
+    async function handleInitialWalletSetup(payload: { wallets: Array<{ walletId: string; balance: number }> }) {
+        setInitialSetupError('');
+        setIsInitialSetupSubmitting(true);
+
+        try {
+            await initializeWalletSetup(payload);
+            await refreshWallets();
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Thiết lập số dư khởi tạo thất bại.';
+            setInitialSetupError(responseMessage);
+        } finally {
+            setIsInitialSetupSubmitting(false);
         }
     }
 
@@ -480,12 +729,21 @@ export function DashboardShell() {
 
     return (
         <>
-            {!isDrawerView ? <FloatingTransactionBubble /> : null}
+            {!isDrawerView && !isNotificationOpen ? <FloatingTransactionBubble /> : null}
+            <InitialWalletSetupModal
+                isOpen={requiresInitialWalletSetup && wallets.length > 0}
+                wallets={wallets}
+                isSubmitting={isInitialSetupSubmitting}
+                errorMessage={initialSetupError}
+                onSubmit={handleInitialWalletSetup}
+            />
             <SideDrawer
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}
                 onLogout={() => setIsLogoutConfirmOpen(true)}
                 onOpenWalletHistory={handleOpenWalletHistory}
+                onOpenFriends={handleOpenFriendsTab}
+                onOpenSharedFunds={handleOpenSharedFunds}
                 user={user}
                 totalWalletBalance={totalWalletBalance}
                 wallets={wallets}
@@ -496,11 +754,21 @@ export function DashboardShell() {
                 notifications={paymentNotifications}
                 wallets={wallets}
                 expenseCategories={expenseNotificationCategories}
+                friendRequests={pendingFriendRequests}
+                sharedFundInvites={sharedFundInvites}
+                sharedFundActivities={sharedFundActivities}
+                messageNotifications={messageNotifications}
                 userTelegramChatId={user?.telegramChatId}
                 onClose={() => setIsNotificationOpen(false)}
                 onCreateNotification={handleCreatePaymentNotification}
                 onPayNotification={handlePayPaymentNotification}
                 onDeleteNotification={handleDeletePaymentNotification}
+                onAcceptFriendRequest={handleAcceptFriendRequest}
+                onRejectFriendRequest={handleRejectFriendRequest}
+                onAcceptSharedFundInvite={handleAcceptSharedFundInvite}
+                onRejectSharedFundInvite={handleRejectSharedFundInvite}
+                onReplyMessageNotification={handleReplyMessageNotification}
+                onHideMessageNotification={handleHideMessageNotification}
             />
             <main className="app-shell">
                 <div className="page-container">
@@ -515,7 +783,23 @@ export function DashboardShell() {
                                 {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
                             </IconButton>
                             <IconButton onClick={() => setIsNotificationOpen(true)}>
-                                <BellDot size={18} />
+                                <span style={{ position: 'relative', display: 'inline-flex' }}>
+                                    <Bell size={18} />
+                                    {pendingFriendRequests.length > 0 || sharedFundInvites.length > 0 || sharedFundActivities.length > 0 || messageNotifications.length > 0 ? (
+                                        <span
+                                            style={{
+                                                position: 'absolute',
+                                                right: -2,
+                                                top: -2,
+                                                width: 8,
+                                                height: 8,
+                                                borderRadius: '50%',
+                                                background: '#ef4444',
+                                                boxShadow: '0 0 0 2px var(--theme-icon-surface)',
+                                            }}
+                                        />
+                                    ) : null}
+                                </span>
                             </IconButton>
                         </div>
                     </header>
@@ -562,7 +846,7 @@ export function DashboardShell() {
                         </div>
                     </AppCard>
 
-                    {activeTab !== 'calendar' && activeTab !== 'wallets' ? (
+                    {activeTab !== 'calendar' && activeTab !== 'wallets' && activeTab !== 'friends' ? (
                         <AppCard style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12 }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                                 <div>

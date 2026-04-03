@@ -1,4 +1,4 @@
-export type TypeDashboardTab = 'menu' | 'transactions' | 'dashboard' | 'calendar' | 'wallets' | 'chat';
+export type TypeDashboardTab = 'none' | 'menu' | 'transactions' | 'dashboard' | 'calendar' | 'wallets' | 'chat' | 'friends';
 export type TypeTransactionKind = 'income' | 'expense';
 
 export interface IExpenseCategoryItem {

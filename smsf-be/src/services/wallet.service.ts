@@ -58,6 +58,23 @@ const buildDefaultWallets = (userId: string): IWallet[] => {
     ];
 };
 
+const requiresInitialWalletSetup = async (wallets: IWallet[]): Promise<boolean> => {
+    if (wallets.length === 0) {
+        return false;
+    }
+
+    const initialSetupLogs = await prisma.walletLog.count({
+        where: {
+            walletId: {
+                in: wallets.map((wallet) => wallet.id),
+            },
+            action: "initial-setup",
+        },
+    });
+
+    return initialSetupLogs === 0;
+};
+
 const listWalletsByUserId = async (userId: string): Promise<IWallet[]> => {
     const wallets = await getWalletsByUserId(userId);
     if (wallets.length > 0) {
@@ -83,16 +100,21 @@ const listWalletsByUserId = async (userId: string): Promise<IWallet[]> => {
 
 const getWalletSummary = async (userId: string): Promise<IWalletSummary> => {
     const wallets = await listWalletsByUserId(userId);
+    const shouldRequireInitialSetup = await requiresInitialWalletSetup(wallets);
     const summary = await getWalletSummaryByUserId(userId);
 
     if (summary.wallets.length === 0) {
         return {
             wallets,
             totalAmount: wallets.reduce((sum, wallet) => sum + wallet.balance, 0),
+            requiresInitialSetup: shouldRequireInitialSetup,
         };
     }
 
-    return summary;
+    return {
+        ...summary,
+        requiresInitialSetup: shouldRequireInitialSetup,
+    };
 };
 
 const findWalletById = async (
@@ -208,6 +230,93 @@ const createWalletForUser = async (
     return upsertWallet(newWallet);
 };
 
+const initializeWalletBalancesForUser = async (
+    userId: string,
+    payload: {
+        wallets: Array<{
+            walletId: string;
+            balance: number;
+        }>;
+    },
+): Promise<IWalletSummary> => {
+    const wallets = await listWalletsByUserId(userId);
+    const submittedWallets = Array.isArray(payload.wallets) ? payload.wallets : [];
+
+    if (wallets.length === 0) {
+        const error = new Error("No wallets found for initial setup.");
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+    }
+
+    if (!(await requiresInitialWalletSetup(wallets))) {
+        const error = new Error("Initial wallet setup has already been completed.");
+        (error as Error & { statusCode?: number }).statusCode = 409;
+        throw error;
+    }
+
+    if (submittedWallets.length !== wallets.length) {
+        const error = new Error("Please provide an initial balance for every wallet.");
+        (error as Error & { statusCode?: number }).statusCode = 400;
+        throw error;
+    }
+
+    const balancesByWalletId = new Map<string, number>();
+
+    for (const item of submittedWallets) {
+        const walletId = String(item.walletId || "").trim();
+        const balance = Number(item.balance ?? 0);
+
+        if (!walletId) {
+            const error = new Error("walletId is required for initial setup.");
+            (error as Error & { statusCode?: number }).statusCode = 400;
+            throw error;
+        }
+
+        if (balancesByWalletId.has(walletId)) {
+            const error = new Error("Duplicate walletId found in initial setup payload.");
+            (error as Error & { statusCode?: number }).statusCode = 400;
+            throw error;
+        }
+
+        if (!Number.isFinite(balance) || balance < 0) {
+            const error = new Error("Wallet balance must be a non-negative number.");
+            (error as Error & { statusCode?: number }).statusCode = 400;
+            throw error;
+        }
+
+        balancesByWalletId.set(walletId, balance);
+    }
+
+    for (const wallet of wallets) {
+        if (!balancesByWalletId.has(wallet.id)) {
+            const error = new Error(`Missing initial balance for wallet ${wallet.name}.`);
+            (error as Error & { statusCode?: number }).statusCode = 400;
+            throw error;
+        }
+    }
+
+    const now = Date.now();
+
+    await prisma.$transaction(async (tx) => {
+        for (const wallet of wallets) {
+            const nextBalance = balancesByWalletId.get(wallet.id) ?? 0;
+
+            await updateWalletBalance(userId, wallet.id, nextBalance, tx);
+            await createWalletLog({
+                walletId: wallet.id,
+                action: "initial-setup",
+                amount: nextBalance,
+                balanceBefore: wallet.balance,
+                balanceAfter: nextBalance,
+                description: "Thiết lập số dư khởi tạo",
+                createdAt: now,
+            }, tx);
+        }
+    });
+
+    return getWalletSummary(userId);
+};
+
     const setWalletActiveForUser = async (
         userId: string,
         walletId: string,
@@ -256,6 +365,7 @@ export {
     findWalletById,
     applyTransactionEffectToWallet,
     createWalletForUser,
+    initializeWalletBalancesForUser,
     setWalletActiveForUser,
     getWalletLogsForUser,
     reorderWalletForUser,

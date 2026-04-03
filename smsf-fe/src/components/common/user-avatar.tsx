@@ -21,39 +21,52 @@ export function UserAvatar({ src, alt, size, radius = '50%', style, imageStyle, 
         setCurrentSrc(src || DEFAULT_USER_AVATAR);
     }, [src]);
 
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={!onClick}
+    const avatarStyle: CSSProperties = {
+        width: size,
+        height: size,
+        padding: 0,
+        borderRadius: radius,
+        overflow: 'hidden',
+        border: '1px solid var(--chip-border)',
+        background: 'linear-gradient(135deg, var(--chip-bg), color-mix(in srgb, var(--theme-gradient-end) 16%, transparent))',
+        display: 'grid',
+        placeItems: 'center',
+        flexShrink: 0,
+        cursor: onClick ? 'pointer' : 'default',
+        ...style,
+    };
+
+    const avatarImage = (
+        <img
+            src={currentSrc}
+            alt={alt}
+            onError={() => setCurrentSrc(DEFAULT_USER_AVATAR)}
             style={{
-                width: size,
-                height: size,
-                padding: 0,
-                borderRadius: radius,
-                overflow: 'hidden',
-                border: '1px solid var(--chip-border)',
-                background: 'linear-gradient(135deg, var(--chip-bg), color-mix(in srgb, var(--theme-gradient-end) 16%, transparent))',
-                display: 'grid',
-                placeItems: 'center',
-                flexShrink: 0,
-                cursor: onClick ? 'pointer' : 'default',
-                ...style,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                display: 'block',
+                ...imageStyle,
             }}
-        >
-            <img
-                src={currentSrc}
-                alt={alt}
-                onError={() => setCurrentSrc(DEFAULT_USER_AVATAR)}
-                style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    display: 'block',
-                    ...imageStyle,
-                }}
-            />
-        </button>
+        />
+    );
+
+    if (onClick) {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                style={avatarStyle}
+            >
+                {avatarImage}
+            </button>
+        );
+    }
+
+    return (
+        <div style={avatarStyle}>
+            {avatarImage}
+        </div>
     );
 }
 

@@ -41,3 +41,28 @@ export interface INotificationPaymentResponse extends IWalletSummary {
     notification: INotificationItem;
     transactionId: string;
 }
+
+export interface IMessageNotificationItem {
+    id: string;
+    senderId: string;
+    senderName: string;
+    senderUsername: string;
+    senderAvatarUrl: string | null;
+    content: string;
+    createdAt: number;
+    unreadCount: number;
+}
+
+export interface ISharedFundActivityNotificationItem {
+    id: string;
+    walletId: string;
+    walletName: string;
+    actorId: string;
+    actorName: string;
+    action: 'create' | 'update' | 'delete' | 'withdraw';
+    amount?: number;
+    type?: 'income' | 'expense';
+    description?: string;
+    message: string;
+    createdAt: number;
+}

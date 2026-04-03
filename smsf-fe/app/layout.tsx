@@ -3,6 +3,7 @@ import { ReactNode } from 'react';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import { AuthProvider } from '@/providers/auth-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
+import { SocketProvider } from '@/lib/socket-context';
 import './globals.css';
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -29,7 +30,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <html lang="vi">
             <body className={plusJakartaSans.variable}>
                 <ThemeProvider>
-                    <AuthProvider>{children}</AuthProvider>
+                    <AuthProvider>
+                        <SocketProvider>{children}</SocketProvider>
+                    </AuthProvider>
                 </ThemeProvider>
             </body>
         </html>

@@ -7,6 +7,7 @@ import { CustomDatePicker } from '@/components/common/custom-date-picker';
 import { CustomSelect } from '@/components/common/custom-select';
 import { getWalletLogsRequest, IWalletLogItem, IWalletLogPage } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { getWalletLogLabel, isWalletLogCredit } from '@/lib/wallet-log-label';
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { IWalletItem } from '@/types/calendar';
 
@@ -18,31 +19,15 @@ interface IWalletHistoryTabProps {
 const WALLET_LOG_PAGE_SIZE = 10;
 
 const getLogAccent = (action: string): string => {
-    if (action === 'credit') {
-        return '#16a34a';
-    }
-
-    if (action === 'create') {
+    if (action === 'create' || action === 'initial-setup') {
         return '#2563eb';
     }
 
+    if (isWalletLogCredit(action)) {
+        return '#16a34a';
+    }
+
     return '#f97316';
-};
-
-const getLogLabel = (action: string): string => {
-    if (action === 'credit') {
-        return 'Cộng tiền';
-    }
-
-    if (action === 'debit') {
-        return 'Trừ tiền';
-    }
-
-    if (action === 'create') {
-        return 'Khởi tạo ví';
-    }
-
-    return action;
 };
 
 export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryTabProps) {
@@ -266,7 +251,7 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
                                             fontWeight: 800,
                                         }}
                                     >
-                                        {getLogLabel(log.action)}
+                                        {getWalletLogLabel(log.action)}
                                     </span>
                                     <span style={{ fontSize: 13.5, fontWeight: 800, color: getLogAccent(log.action), letterSpacing: isBalanceVisible ? undefined : '0.06em' }}>
                                         {isBalanceVisible ? formatCurrencyVND(log.amount) : '••••••'}
@@ -286,6 +271,12 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
                             <div style={{ fontSize: 13, color: 'var(--foreground)', lineHeight: 1.5 }}>
                                 {log.description || 'Không có mô tả.'}
                             </div>
+
+                            {log.actorDisplayName ? (
+                                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                                    Thực hiện bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{log.actorDisplayName}</span>
+                                </div>
+                            ) : null}
 
                             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                                 {isBalanceVisible

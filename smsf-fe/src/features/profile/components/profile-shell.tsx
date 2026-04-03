@@ -2,24 +2,28 @@
 
 import { Camera, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, History, ImageUp, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import { BottomNav } from '@/components/navigation/bottom-nav';
+import { SideDrawer } from '@/components/navigation/side-drawer';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { AvatarCropModal } from '@/features/profile/components/avatar-crop-modal';
 import { AvatarPreviewModal } from '@/features/profile/components/avatar-preview-modal';
+import { SharedFundCard } from '@/features/profile/components/shared-fund-card';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { getWalletLogsRequest, IWalletLogItem, IWalletLogPage } from '@/lib/calendar/api';
+import { getWalletLogLabel, isWalletLogCredit } from '@/lib/wallet-log-label';
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 import { TypeDashboardTab } from '@/types/dashboard';
 
 export function ProfileShell() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive, dragReorderWallets, uploadAvatar } = useAuth();
+    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, logout, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive, dragReorderWallets, uploadAvatar } = useAuth();
 
     const [displayName, setDisplayName] = useState('');
     const [telegramChatId, setTelegramChatId] = useState('');
@@ -32,6 +36,7 @@ export function ProfileShell() {
     const [walletErrorMessage, setWalletErrorMessage] = useState('');
     const [walletSuccessMessage, setWalletSuccessMessage] = useState('');
     const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
     const [cropImageUrl, setCropImageUrl] = useState('');
     const [isAvatarUploading, setIsAvatarUploading] = useState(false);
@@ -45,6 +50,8 @@ export function ProfileShell() {
     const [walletLogsMap, setWalletLogsMap] = useState<Record<string, IWalletLogPage>>({});
     const [isLoadingLogsFor, setIsLoadingLogsFor] = useState<string | null>(null);
     const [hoveredWalletId, setHoveredWalletId] = useState<string | null>(null);
+
+    const activeProfileTab = searchParams.get('tab') === 'funds' ? 'funds' : 'account';
 
     const handleLoadWalletLogs = useCallback(async (walletId: string) => {
         setIsLoadingLogsFor(walletId);
@@ -266,13 +273,39 @@ export function ProfileShell() {
     };
 
     const handleNavSelect = useCallback((tab: TypeDashboardTab) => {
-        if (tab === 'menu' || tab === 'dashboard') {
+        if (tab === 'menu') {
+            setIsDrawerOpen(true);
+            return;
+        }
+
+        if (tab === 'dashboard') {
             router.push('/dashboard');
             return;
         }
 
         router.push(`/dashboard?tab=${tab}`);
     }, [router]);
+
+    const handleOpenWalletHistory = useCallback(() => {
+        router.push('/dashboard?tab=wallets&view=drawer');
+    }, [router]);
+
+    const handleOpenFriends = useCallback(() => {
+        router.push('/dashboard?tab=friends');
+    }, [router]);
+
+    const handleOpenSharedFunds = useCallback(() => {
+        router.push('/profile?tab=funds');
+    }, [router]);
+
+    const handleSelectProfileTab = useCallback((tab: 'account' | 'funds') => {
+        router.replace(tab === 'funds' ? '/profile?tab=funds' : '/profile');
+    }, [router]);
+
+    const handleLogout = useCallback(async () => {
+        await logout();
+        router.replace('/login');
+    }, [logout, router]);
 
     if (isLoading) {
         return (
@@ -286,6 +319,17 @@ export function ProfileShell() {
 
     return (
         <>
+        <SideDrawer
+            isOpen={isDrawerOpen}
+            onClose={() => setIsDrawerOpen(false)}
+            onLogout={() => { void handleLogout(); }}
+            onOpenWalletHistory={handleOpenWalletHistory}
+            onOpenFriends={handleOpenFriends}
+            onOpenSharedFunds={handleOpenSharedFunds}
+            user={user}
+            totalWalletBalance={totalWalletBalance}
+            wallets={wallets}
+        />
         <main className="app-shell">
             <div className="page-container" style={{ display: 'grid', gap: 14, paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
                 <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarFileChange} style={{ display: 'none' }} />
@@ -303,6 +347,42 @@ export function ProfileShell() {
                     onConfirm={handleAvatarUpload}
                     isSubmitting={isAvatarUploading}
                 />
+                <div style={{ display: 'flex', gap: 6, borderRadius: 12, background: 'var(--surface-soft)', padding: 4 }}>
+                    <button
+                        type="button"
+                        onClick={() => handleSelectProfileTab('account')}
+                        style={{
+                            flex: 1,
+                            minHeight: 36,
+                            borderRadius: 10,
+                            border: 'none',
+                            background: activeProfileTab === 'account' ? 'var(--chip-bg)' : 'transparent',
+                            color: 'var(--foreground)',
+                            fontWeight: 800,
+                            fontSize: 12.5,
+                        }}
+                    >
+                        Hồ sơ
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSelectProfileTab('funds')}
+                        style={{
+                            flex: 1,
+                            minHeight: 36,
+                            borderRadius: 10,
+                            border: 'none',
+                            background: activeProfileTab === 'funds' ? 'var(--chip-bg)' : 'transparent',
+                            color: 'var(--foreground)',
+                            fontWeight: 800,
+                            fontSize: 12.5,
+                        }}
+                    >
+                        Quỹ chung
+                    </button>
+                </div>
+                {activeProfileTab === 'account' ? (
+                    <>
                 <AppCard strong style={{ padding: 16, display: 'grid', gap: 12 }}>
                     <div>
                         <div style={{ color: 'var(--muted)', fontSize: 12 }}>Thông tin người dùng</div>
@@ -713,12 +793,8 @@ export function ProfileShell() {
                                             {logs && logs.items.length > 0 ? (
                                                 <div style={{ display: 'grid', gap: 6 }}>
                                                     {logs.items.map((log: IWalletLogItem) => {
-                                                        const isCredit = log.action === 'credit';
-                                                        const actionLabel =
-                                                            log.action === 'credit' ? '+ Thu vào'
-                                                            : log.action === 'debit' ? '- Chi ra'
-                                                            : log.action === 'create' ? 'Khởi tạo'
-                                                            : log.action;
+                                                        const isCredit = isWalletLogCredit(log.action);
+                                                        const actionLabel = getWalletLogLabel(log.action);
                                                         return (
                                                             <div
                                                                 key={log.id}
@@ -745,6 +821,11 @@ export function ProfileShell() {
                                                                         : '••••• → •••••'}
                                                                     {log.description ? <span> · {log.description}</span> : null}
                                                                 </div>
+                                                                {log.actorDisplayName ? (
+                                                                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                                                        Thực hiện bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{log.actorDisplayName}</span>
+                                                                    </div>
+                                                                ) : null}
                                                             </div>
                                                         );
                                                     })}
@@ -778,9 +859,14 @@ export function ProfileShell() {
                         </div>
                     )}
                 </AppCard>
+
+                    </>
+                ) : null}
+
+                {activeProfileTab === 'funds' ? <SharedFundCard /> : null}
             </div>
         </main>
-        <BottomNav activeTab="menu" onSelect={handleNavSelect} />
+        <BottomNav activeTab="none" onSelect={handleNavSelect} />
     </>
     );
 }

@@ -14,6 +14,7 @@ export interface IWallet {
 export interface IWalletSummary {
     wallets: IWallet[];
     totalAmount: number;
+    requiresInitialSetup: boolean;
 }
 
 export interface ITransaction {
@@ -64,6 +65,7 @@ export interface IWalletLog {
     id: string;
     walletId: string;
     transactionId?: string;
+    actorDisplayName?: string;
     action: string;
     amount: number;
     balanceBefore: number;

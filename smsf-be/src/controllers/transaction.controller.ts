@@ -21,6 +21,61 @@ import {
     validateUpdateTransactionPayload,
 } from "../validators/transaction.validator";
 import { getWalletSummary } from "../services/wallet.service";
+import { emitToUser } from "../lib/socket";
+import { prisma } from "../lib/prisma";
+import { listSharedFundMemberIds } from "../services/shared-fund.service";
+
+const notifySharedFundActivity = async (payload: {
+    walletId: string;
+    actorId: string;
+    actorName: string;
+    action: "create" | "update" | "delete";
+    amount?: number;
+    type?: "income" | "expense";
+    description?: string;
+}) => {
+    const wallet = await prisma.wallet.findUnique({
+        where: { id: payload.walletId },
+        select: {
+            id: true,
+            name: true,
+            type: true,
+        },
+    });
+
+    if (!wallet || wallet.type !== "shared-fund") {
+        return;
+    }
+
+    const memberIds = await listSharedFundMemberIds(wallet.id);
+    if (memberIds.length === 0) {
+        return;
+    }
+
+    const createdAt = Date.now();
+    const message =
+        payload.action === "delete"
+            ? `${payload.actorName} đã xóa một giao dịch trong quỹ ${wallet.name}`
+            : payload.action === "update"
+              ? `${payload.actorName} đã cập nhật giao dịch trong quỹ ${wallet.name}`
+              : `${payload.actorName} đã thêm giao dịch vào quỹ ${wallet.name}`;
+
+    for (const memberId of memberIds) {
+        emitToUser(memberId, "shared_fund_activity", {
+            id: `${wallet.id}:${createdAt}:${memberId}`,
+            walletId: wallet.id,
+            walletName: wallet.name,
+            actorId: payload.actorId,
+            actorName: payload.actorName,
+            action: payload.action,
+            amount: payload.amount,
+            type: payload.type,
+            description: payload.description,
+            createdAt,
+            message,
+        });
+    }
+};
 
 const parseMonthYear = (
     monthRaw: unknown,
@@ -218,6 +273,15 @@ const createTransaction = async (
             validation.payload,
             String(req.user?.username || "").trim() || undefined,
         );
+        await notifySharedFundActivity({
+            walletId: result.transaction.walletId,
+            actorId: userId,
+            actorName: String(req.user?.username || "Thành viên"),
+            action: "create",
+            amount: result.transaction.amount,
+            type: result.transaction.type,
+            description: result.transaction.description,
+        });
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
@@ -327,6 +391,15 @@ const updateTransaction = async (
             validation.payload,
             String(req.user?.username || "").trim() || undefined,
         );
+        await notifySharedFundActivity({
+            walletId: result.transaction.walletId,
+            actorId: userId,
+            actorName: String(req.user?.username || "Thành viên"),
+            action: "update",
+            amount: result.transaction.amount,
+            type: result.transaction.type,
+            description: result.transaction.description,
+        });
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
@@ -372,6 +445,12 @@ const removeTransaction = async (
 
     try {
         const result = await deleteTransactionForUser(userId, transactionId);
+        await notifySharedFundActivity({
+            walletId: result.walletId,
+            actorId: userId,
+            actorName: String(req.user?.username || "Thành viên"),
+            action: "delete",
+        });
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 

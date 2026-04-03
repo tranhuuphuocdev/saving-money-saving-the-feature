@@ -40,12 +40,20 @@ export interface IWalletItem {
 export interface IWalletSummary {
     wallets: IWalletItem[];
     totalAmount: number;
+    requiresInitialSetup: boolean;
 }
 
 export interface ICreateWalletPayload {
     name: string;
     type?: string;
     balance?: number;
+}
+
+export interface IInitialWalletSetupPayload {
+    wallets: Array<{
+        walletId: string;
+        balance: number;
+    }>;
 }
 
 export interface ICreateTransactionPayload {

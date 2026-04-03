@@ -1,14 +1,17 @@
 'use client';
 
-import { BellRing, CalendarClock, CheckCircle2, Clock3, Plus, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { BellRing, CalendarClock, CheckCircle2, Clock3, MessageCircle, Plus, UserPlus, Users2, X } from 'lucide-react';
+import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AppCard } from '@/components/common/app-card';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
+import { UserAvatar } from '@/components/common/user-avatar';
 import { formatCurrencyVND } from '@/lib/formatters';
 import { useLockBodyScroll } from '@/lib/ui/use-lock-body-scroll';
 import { ICategoryItem, IWalletItem } from '@/types/calendar';
-import { ICreateNotificationPayload, INotificationItem, IPayNotificationPayload } from '@/types/notification';
+import { IFriendRequest } from '@/types/messages';
+import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem } from '@/types/notification';
+import { ISharedFundInviteItem } from '@/types/shared-fund';
 
 interface INotificationDrawerProps {
     isOpen: boolean;
@@ -16,11 +19,41 @@ interface INotificationDrawerProps {
     notifications: INotificationItem[];
     wallets: IWalletItem[];
     expenseCategories: ICategoryItem[];
+    friendRequests: IFriendRequest[];
+    sharedFundInvites: ISharedFundInviteItem[];
+    sharedFundActivities: ISharedFundActivityNotificationItem[];
+    messageNotifications: IMessageNotificationItem[];
     userTelegramChatId?: string;
     onClose: () => void;
     onCreateNotification: (payload: ICreateNotificationPayload) => Promise<void>;
     onPayNotification: (notificationId: string, payload: IPayNotificationPayload) => Promise<void>;
     onDeleteNotification: (notificationId: string) => Promise<void>;
+    onAcceptFriendRequest: (requestId: string) => Promise<void>;
+    onRejectFriendRequest: (requestId: string) => Promise<void>;
+    onAcceptSharedFundInvite: (inviteId: string) => Promise<void>;
+    onRejectSharedFundInvite: (inviteId: string) => Promise<void>;
+    onReplyMessageNotification: (notificationId: string, senderId: string) => void;
+    onHideMessageNotification: (notificationId: string) => void;
+}
+
+const NOTI_ACTION_SIDE_PADDING = 6;
+const NOTI_ACTION_BUTTON_WIDTH = 58;
+const NOTI_ACTION_GAP = 4;
+const NOTI_ACTION_TRAILING_PADDING = 6;
+const NOTI_SWIPE_SNAP =
+    NOTI_ACTION_SIDE_PADDING
+    + NOTI_ACTION_BUTTON_WIDTH
+    + NOTI_ACTION_GAP
+    + NOTI_ACTION_BUTTON_WIDTH
+    + NOTI_ACTION_TRAILING_PADDING;
+
+function formatNotificationTime(timestamp: number): string {
+    return new Intl.DateTimeFormat('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        day: '2-digit',
+        month: '2-digit',
+    }).format(new Date(timestamp));
 }
 
 interface INotificationVisualStyle {
@@ -119,11 +152,21 @@ export function NotificationDrawer({
     notifications,
     wallets,
     expenseCategories,
+    friendRequests,
+    sharedFundInvites,
+    sharedFundActivities,
+    messageNotifications,
     userTelegramChatId,
     onClose,
     onCreateNotification,
     onPayNotification,
     onDeleteNotification,
+    onAcceptFriendRequest,
+    onRejectFriendRequest,
+    onAcceptSharedFundInvite,
+    onRejectSharedFundInvite,
+    onReplyMessageNotification,
+    onHideMessageNotification,
 }: INotificationDrawerProps) {
     useLockBodyScroll(isOpen);
 
@@ -142,6 +185,80 @@ export function NotificationDrawer({
     const [payError, setPayError] = useState('');
     const [isPaying, setIsPaying] = useState(false);
     const [deletingNotificationId, setDeletingNotificationId] = useState<string | null>(null);
+    const [friendActionLoadingMap, setFriendActionLoadingMap] = useState<Record<string, boolean>>({});
+
+    const [activeSection, setActiveSection] = useState<'reminder' | 'notification'>('reminder');
+    const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Record<string, boolean>>({});
+    const [dismissingTimelineMap, setDismissingTimelineMap] = useState<Record<string, boolean>>({});
+    const [acceptSuccessMap, setAcceptSuccessMap] = useState<Record<string, boolean>>({});
+    const [swipedNotificationId, setSwipedNotificationId] = useState<string | null>(null);
+    const [dragOffsetX, setDragOffsetX] = useState(0);
+    const listRef = useRef<HTMLDivElement | null>(null);
+    const dragRef = useRef<{
+        id: string;
+        startX: number;
+        startOffset: number;
+        maxLeft: number;
+        hasMoved: boolean;
+    } | null>(null);
+
+    const markDismissedWithAnimation = (timelineId: string) => {
+        setDismissingTimelineMap((previous) => ({ ...previous, [timelineId]: true }));
+
+        window.setTimeout(() => {
+            setDismissedNotificationIds((previous) => ({ ...previous, [timelineId]: true }));
+            setDismissingTimelineMap((previous) => {
+                const next = { ...previous };
+                delete next[timelineId];
+                return next;
+            });
+            setAcceptSuccessMap((previous) => {
+                const next = { ...previous };
+                delete next[timelineId];
+                return next;
+            });
+        }, 260);
+    };
+
+    const handleResolveFriendRequest = async (timelineId: string, requestId: string, action: 'accept' | 'reject') => {
+        if (friendActionLoadingMap[requestId]) {
+            return;
+        }
+
+        setFriendActionLoadingMap((previous) => ({ ...previous, [requestId]: true }));
+        try {
+            if (action === 'accept') {
+                await onAcceptFriendRequest(requestId);
+                setAcceptSuccessMap((previous) => ({ ...previous, [timelineId]: true }));
+                window.setTimeout(() => markDismissedWithAnimation(timelineId), 280);
+            } else {
+                await onRejectFriendRequest(requestId);
+                markDismissedWithAnimation(timelineId);
+            }
+        } finally {
+            setFriendActionLoadingMap((previous) => ({ ...previous, [requestId]: false }));
+        }
+    };
+
+    const handleResolveSharedFundInvite = async (timelineId: string, inviteId: string, action: 'accept' | 'reject') => {
+        if (friendActionLoadingMap[inviteId]) {
+            return;
+        }
+
+        setFriendActionLoadingMap((previous) => ({ ...previous, [inviteId]: true }));
+        try {
+            if (action === 'accept') {
+                await onAcceptSharedFundInvite(inviteId);
+                setAcceptSuccessMap((previous) => ({ ...previous, [timelineId]: true }));
+                window.setTimeout(() => markDismissedWithAnimation(timelineId), 280);
+            } else {
+                await onRejectSharedFundInvite(inviteId);
+                markDismissedWithAnimation(timelineId);
+            }
+        } finally {
+            setFriendActionLoadingMap((previous) => ({ ...previous, [inviteId]: false }));
+        }
+    };
 
     const richestWalletId = useMemo(() => {
         if (wallets.length === 0) {
@@ -159,20 +276,47 @@ export function NotificationDrawer({
 
     const sortedNotifications = useMemo(() => {
         return [...notifications].sort((left, right) => {
-            const leftPriority = left.paymentStatus === 'unpaid' ? 0 : 1;
-            const rightPriority = right.paymentStatus === 'unpaid' ? 0 : 1;
-
-            if (leftPriority !== rightPriority) {
-                return leftPriority - rightPriority;
-            }
-
-            if (left.nextDueAt !== right.nextDueAt) {
-                return left.nextDueAt - right.nextDueAt;
+            if (right.createdAt !== left.createdAt) {
+                return right.createdAt - left.createdAt;
             }
 
             return right.updatedAt - left.updatedAt;
         });
     }, [notifications]);
+
+    const notificationTimeline = useMemo(() => {
+        const messageItems = messageNotifications.map((item) => ({
+            id: `msg-${item.id}`,
+            type: 'message' as const,
+            createdAt: item.createdAt,
+            item,
+        }));
+
+        const friendItems = friendRequests.map((item) => ({
+            id: `fr-${item.requestId}`,
+            type: 'friend-request' as const,
+            createdAt: item.createdAt,
+            item,
+        }));
+
+        const sharedFundItems = sharedFundInvites.map((item) => ({
+            id: `sf-${item.inviteId}`,
+            type: 'shared-fund' as const,
+            createdAt: item.createdAt,
+            item,
+        }));
+
+        const sharedFundActivityItems = sharedFundActivities.map((item) => ({
+            id: `sfa-${item.id}`,
+            type: 'shared-fund-activity' as const,
+            createdAt: item.createdAt,
+            item,
+        }));
+
+        return [...messageItems, ...friendItems, ...sharedFundItems, ...sharedFundActivityItems]
+            .filter((item) => !dismissedNotificationIds[item.id])
+            .sort((left, right) => right.createdAt - left.createdAt);
+    }, [dismissedNotificationIds, friendRequests, messageNotifications, sharedFundActivities, sharedFundInvites]);
 
     useEffect(() => {
         if (!createCategoryId) {
@@ -185,6 +329,75 @@ export function NotificationDrawer({
             setPayWalletId(richestWalletId);
         }
     }, [payWalletId, richestWalletId]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            return;
+        }
+
+        if (listRef.current) {
+            listRef.current.scrollTop = 0;
+        }
+
+        setSwipedNotificationId(null);
+        setDragOffsetX(0);
+    }, [activeSection, isOpen]);
+
+    const handleNotificationPointerDown = (id: string, event: PointerEvent<HTMLDivElement>) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button')) {
+            return;
+        }
+
+        if (event.pointerType === 'mouse' && event.button !== 0) {
+            return;
+        }
+
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const rowWidth = event.currentTarget.getBoundingClientRect().width;
+        const maxLeft = Math.min(rowWidth / 2, rowWidth - 24);
+
+        dragRef.current = {
+            id,
+            startX: event.clientX,
+            startOffset: swipedNotificationId === id ? -NOTI_SWIPE_SNAP : 0,
+            maxLeft,
+            hasMoved: false,
+        };
+
+        if (swipedNotificationId !== id) {
+            setSwipedNotificationId(null);
+        }
+    };
+
+    const handleNotificationPointerMove = (id: string, event: PointerEvent<HTMLDivElement>) => {
+        if (!dragRef.current || dragRef.current.id !== id) {
+            return;
+        }
+
+        const delta = event.clientX - dragRef.current.startX;
+        if (Math.abs(delta) > 8) {
+            dragRef.current.hasMoved = true;
+        }
+
+        const next = Math.min(0, Math.max(-dragRef.current.maxLeft, dragRef.current.startOffset + delta));
+        setDragOffsetX(next);
+    };
+
+    const handleNotificationPointerEnd = (id: string) => {
+        if (!dragRef.current || dragRef.current.id !== id) {
+            return;
+        }
+
+        if (Math.abs(dragOffsetX) > 12) {
+            setSwipedNotificationId(id);
+        } else {
+            setSwipedNotificationId(null);
+        }
+
+        setDragOffsetX(0);
+        dragRef.current = null;
+    };
 
     const resetCreateModal = () => {
         setCreateCategoryId(expenseCategories[0]?.id || '');
@@ -337,8 +550,10 @@ export function NotificationDrawer({
             >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
-                        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Thông báo định kỳ</div>
-                        <div style={{ marginTop: 3, fontSize: 18, fontWeight: 900 }}>Nhắc lịch thanh toán</div>
+                        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Thông báo</div>
+                        <div style={{ marginTop: 3, fontSize: 18, fontWeight: 900 }}>
+                            {activeSection === 'reminder' ? 'Nhắc lịch thanh toán' : 'Thông báo'}
+                        </div>
                     </div>
                     <button
                         onClick={onClose}
@@ -355,17 +570,81 @@ export function NotificationDrawer({
                     </button>
                 </div>
 
+                <div style={{ display: 'flex', gap: 6, borderRadius: 10, background: 'var(--surface-soft)', padding: 4, alignSelf: 'start' }}>
+                    <button
+                        onClick={() => setActiveSection('reminder')}
+                        type="button"
+                        style={{
+                            flex: 1,
+                            minHeight: 32,
+                            padding: '0 10px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: activeSection === 'reminder' ? 'var(--chip-bg)' : 'transparent',
+                            color: 'var(--foreground)',
+                            fontWeight: 700,
+                            fontSize: 11.5,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                        }}
+                    >
+                        <CalendarClock size={12.5} /> Nhắc lịch
+                    </button>
+                    <button
+                        onClick={() => setActiveSection('notification')}
+                        type="button"
+                        style={{
+                            flex: 1,
+                            minHeight: 32,
+                            padding: '0 10px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: activeSection === 'notification' ? 'var(--chip-bg)' : 'transparent',
+                            color: 'var(--foreground)',
+                            fontWeight: 700,
+                            fontSize: 11.5,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                        }}
+                    >
+                        <BellRing size={12.5} /> Thông báo
+                    </button>
+                </div>
+
                 <AppCard
                     strong
                     style={{
                         padding: 12,
-                        display: 'grid',
+                        display: 'flex',
+                        flexDirection: 'column',
                         minHeight: 0,
                         overflow: 'hidden',
+                        height: '100%',
                     }}
                 >
-                    <div style={{ display: 'grid', gap: 10, minHeight: 0, overflowY: 'auto', alignContent: 'start', gridAutoRows: 'max-content', paddingRight: 2 }}>
-                        {isLoading ? (
+                    <div
+                        ref={listRef}
+                        style={{
+                            display: 'grid',
+                            gap: 10,
+                            minHeight: 0,
+                            flex: 1,
+                            overflowY: 'auto',
+                            alignContent: 'start',
+                            gridAutoRows: 'max-content',
+                            paddingRight: 2,
+                            overflowAnchor: 'none',
+                        }}
+                    >
+                        {activeSection === 'reminder' && isLoading ? (
                             <div style={{ display: 'grid', gap: 8 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
                                     <Clock3 size={14} /> Đang tải danh sách nhắc hạn...
@@ -386,7 +665,7 @@ export function NotificationDrawer({
                             </div>
                         ) : null}
 
-                        {!isLoading && sortedNotifications.length === 0 ? (
+                        {activeSection === 'reminder' && !isLoading && sortedNotifications.length === 0 ? (
                             <div
                                 style={{
                                     borderRadius: 12,
@@ -401,7 +680,355 @@ export function NotificationDrawer({
                             </div>
                         ) : null}
 
-                        {!isLoading
+                        {activeSection === 'notification' && notificationTimeline.length === 0 ? (
+                            <div
+                                style={{
+                                    borderRadius: 12,
+                                    border: '1px dashed var(--surface-border)',
+                                    padding: '16px 12px',
+                                    color: 'var(--muted)',
+                                    fontSize: 12.5,
+                                    textAlign: 'center',
+                                }}
+                            >
+                                Không có thông báo nào.
+                            </div>
+                        ) : null}
+
+                        {activeSection === 'notification' && notificationTimeline.map((timelineItem) => {
+                            const isDraggingThis = dragRef.current?.id === timelineItem.id;
+                            const isDismissing = Boolean(dismissingTimelineMap[timelineItem.id]);
+                            const translateX = isDraggingThis
+                                ? dragOffsetX
+                                : swipedNotificationId === timelineItem.id
+                                    ? -NOTI_SWIPE_SNAP
+                                    : 0;
+                            const showActions = isDraggingThis || swipedNotificationId === timelineItem.id || translateX < -1;
+
+                            const senderId = timelineItem.type === 'message'
+                                ? timelineItem.item.senderId
+                                : timelineItem.type === 'friend-request'
+                                    ? timelineItem.item.senderId
+                                    : timelineItem.type === 'shared-fund'
+                                        ? timelineItem.item.senderId
+                                        : timelineItem.item.actorId;
+                            const senderName = timelineItem.type === 'message'
+                                ? timelineItem.item.senderName
+                                : timelineItem.type === 'friend-request'
+                                    ? timelineItem.item.senderName
+                                    : timelineItem.type === 'shared-fund'
+                                        ? timelineItem.item.senderName
+                                        : timelineItem.item.actorName;
+                            const senderUsername = timelineItem.type === 'message'
+                                ? timelineItem.item.senderUsername
+                                : timelineItem.type === 'friend-request'
+                                    ? timelineItem.item.senderUsername
+                                    : timelineItem.type === 'shared-fund'
+                                        ? timelineItem.item.senderUsername
+                                        : timelineItem.item.walletName;
+                            const senderAvatar = timelineItem.type === 'message'
+                                ? timelineItem.item.senderAvatarUrl
+                                : timelineItem.type === 'friend-request'
+                                    ? timelineItem.item.senderAvatarUrl
+                                    : timelineItem.type === 'shared-fund'
+                                        ? timelineItem.item.senderAvatarUrl
+                                        : null;
+
+                            const content = timelineItem.type === 'message'
+                                ? timelineItem.item.content
+                                : timelineItem.type === 'friend-request'
+                                    ? 'đã gửi lời mời kết bạn cho bạn.'
+                                    : timelineItem.type === 'shared-fund'
+                                        ? `đã mời bạn tham gia quỹ ${timelineItem.item.walletName}.`
+                                        : timelineItem.item.message;
+
+                            const title = timelineItem.type === 'message'
+                                ? 'tin nhắn mới'
+                                : timelineItem.type === 'friend-request'
+                                    ? 'lời mời kết bạn'
+                                    : timelineItem.type === 'shared-fund'
+                                        ? 'mời vào quỹ chung'
+                                        : 'hoạt động quỹ';
+                            const unreadCount = timelineItem.type === 'message'
+                                ? timelineItem.item.unreadCount
+                                : 0;
+
+                            return (
+                                <div
+                                    key={timelineItem.id}
+                                    style={{
+                                        position: 'relative',
+                                        borderRadius: 12,
+                                        overflow: 'hidden',
+                                        transition: 'opacity 220ms ease, transform 220ms ease, max-height 220ms ease, margin 220ms ease',
+                                        opacity: isDismissing ? 0 : 1,
+                                        transform: isDismissing ? 'translateX(26px)' : 'translateX(0)',
+                                        maxHeight: isDismissing ? 0 : 280,
+                                        margin: isDismissing ? 0 : undefined,
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            display: 'flex',
+                                            justifyContent: 'flex-end',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            padding: 6,
+                                            background: 'var(--surface-soft)',
+                                            border: '1px solid var(--surface-border)',
+                                            opacity: showActions ? 1 : 0,
+                                            pointerEvents: showActions ? 'auto' : 'none',
+                                            transition: 'opacity 140ms ease',
+                                        }}
+                                    >
+                                        {timelineItem.type === 'message' ? (
+                                            <button
+                                                type='button'
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onReplyMessageNotification(timelineItem.item.id, senderId);
+                                                }}
+                                                style={{
+                                                    width: 58,
+                                                    height: 34,
+                                                    border: '1px solid rgba(59,130,246,0.35)',
+                                                    borderRadius: 999,
+                                                    background: 'rgba(59,130,246,0.14)',
+                                                    color: '#2563eb',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: 10.5,
+                                                    fontWeight: 800,
+                                                }}
+                                                title='Trả lời'
+                                            >
+                                                TL
+                                            </button>
+                                            ) : null}
+                                        <button
+                                            type='button'
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                if (timelineItem.type === 'message') {
+                                                    markDismissedWithAnimation(timelineItem.id);
+                                                    window.setTimeout(() => onHideMessageNotification(timelineItem.item.id), 260);
+                                                    return;
+                                                }
+
+                                                markDismissedWithAnimation(timelineItem.id);
+                                            }}
+                                            style={{
+                                                width: 58,
+                                                height: 34,
+                                                border: '1px solid rgba(239,68,68,0.35)',
+                                                borderRadius: 999,
+                                                background: 'rgba(239,68,68,0.14)',
+                                                color: '#dc2626',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: 10.5,
+                                                fontWeight: 800,
+                                            }}
+                                            title='Ẩn'
+                                        >
+                                            Ẩn
+                                        </button>
+                                    </div>
+
+                                    <div
+                                        onPointerDown={(event) => handleNotificationPointerDown(timelineItem.id, event)}
+                                        onPointerMove={(event) => handleNotificationPointerMove(timelineItem.id, event)}
+                                        onPointerUp={() => handleNotificationPointerEnd(timelineItem.id)}
+                                        onPointerCancel={() => handleNotificationPointerEnd(timelineItem.id)}
+                                        style={{
+                                            position: 'relative',
+                                            zIndex: 1,
+                                            borderRadius: 12,
+                                            border: '1px solid var(--surface-border)',
+                                            background: 'var(--surface-soft)',
+                                            padding: '10px 11px',
+                                            display: 'grid',
+                                            gap: 7,
+                                            transform: `translateX(${translateX}px)`,
+                                            transition: isDraggingThis ? 'none' : 'transform 180ms ease',
+                                            touchAction: 'pan-y',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                            <UserAvatar src={senderAvatar || undefined} alt={senderName} size={30} />
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontWeight: 800, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{senderName}</span>
+                                                    {unreadCount > 0 ? (
+                                                        <span
+                                                            style={{
+                                                                minWidth: 20,
+                                                                height: 20,
+                                                                padding: '0 6px',
+                                                                borderRadius: 999,
+                                                                background: 'var(--accent)',
+                                                                color: '#041018',
+                                                                fontSize: 10.5,
+                                                                fontWeight: 900,
+                                                                display: 'grid',
+                                                                placeItems: 'center',
+                                                            }}
+                                                        >
+                                                            {unreadCount}
+                                                        </span>
+                                                    ) : null}
+                                                    <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 10.5 }}>{title}</span>
+                                                </div>
+                                                <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>@{senderUsername || 'user'}</div>
+                                            </div>
+                                        </div>
+
+                                        <div style={{ fontSize: 12.5, color: 'var(--foreground)' }}>{content}</div>
+
+                                        {timelineItem.type === 'friend-request' ? (
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <button
+                                                    type='button'
+                                                    disabled={Boolean(friendActionLoadingMap[timelineItem.item.requestId])}
+                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void handleResolveFriendRequest(timelineItem.id, timelineItem.item.requestId, 'accept');
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        borderRadius: 8,
+                                                        border: '1px solid color-mix(in srgb, #22c55e 44%, var(--surface-border))',
+                                                        background: acceptSuccessMap[timelineItem.id]
+                                                            ? 'color-mix(in srgb, #22c55e 26%, var(--surface-soft))'
+                                                            : 'transparent',
+                                                        color: '#16a34a',
+                                                        minHeight: 30,
+                                                        fontWeight: 800,
+                                                        fontSize: 11.5,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: 6,
+                                                        transition: 'all 220ms ease',
+                                                    }}
+                                                >
+                                                    {acceptSuccessMap[timelineItem.id] ? (
+                                                        <>
+                                                            <CheckCircle2 size={14} /> Đã kết bạn
+                                                        </>
+                                                    ) : (
+                                                        'Chấp nhận'
+                                                    )}
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    disabled={Boolean(friendActionLoadingMap[timelineItem.item.requestId])}
+                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void handleResolveFriendRequest(timelineItem.id, timelineItem.item.requestId, 'reject');
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        borderRadius: 8,
+                                                        border: '1px solid color-mix(in srgb, #ef4444 40%, var(--surface-border))',
+                                                        background: 'transparent',
+                                                        color: '#ef4444',
+                                                        minHeight: 30,
+                                                        fontWeight: 700,
+                                                        fontSize: 11.5,
+                                                    }}
+                                                >
+                                                    Từ chối
+                                                </button>
+                                            </div>
+                                        ) : null}
+
+                                        {timelineItem.type === 'shared-fund' ? (
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <button
+                                                    type='button'
+                                                    disabled={Boolean(friendActionLoadingMap[timelineItem.item.inviteId])}
+                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void handleResolveSharedFundInvite(timelineItem.id, timelineItem.item.inviteId, 'accept');
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        borderRadius: 8,
+                                                        border: '1px solid color-mix(in srgb, #22c55e 40%, var(--surface-border))',
+                                                        background: acceptSuccessMap[timelineItem.id]
+                                                            ? 'color-mix(in srgb, #22c55e 26%, var(--surface-soft))'
+                                                            : 'transparent',
+                                                        color: '#16a34a',
+                                                        minHeight: 30,
+                                                        fontWeight: 800,
+                                                        fontSize: 11.5,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: 6,
+                                                        transition: 'all 220ms ease',
+                                                    }}
+                                                >
+                                                    {acceptSuccessMap[timelineItem.id] ? (
+                                                        <>
+                                                            <CheckCircle2 size={14} /> Đã chấp nhận
+                                                        </>
+                                                    ) : (
+                                                        'Chấp nhận'
+                                                    )}
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    disabled={Boolean(friendActionLoadingMap[timelineItem.item.inviteId])}
+                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void handleResolveSharedFundInvite(timelineItem.id, timelineItem.item.inviteId, 'reject');
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        borderRadius: 8,
+                                                        border: '1px solid color-mix(in srgb, #ef4444 40%, var(--surface-border))',
+                                                        background: 'transparent',
+                                                        color: '#ef4444',
+                                                        minHeight: 30,
+                                                        fontWeight: 700,
+                                                        fontSize: 11.5,
+                                                    }}
+                                                >
+                                                    Không chấp nhận
+                                                </button>
+                                            </div>
+                                        ) : null}
+
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, color: 'var(--muted)', fontSize: 10.8 }}>
+                                            <span>{formatNotificationTime(timelineItem.createdAt)}</span>
+                                            <span>
+                                                {timelineItem.type === 'message' && unreadCount > 1
+                                                    ? `${unreadCount} tin chưa đọc`
+                                                    : timelineItem.type === 'shared-fund'
+                                                        ? 'Chọn chấp nhận hoặc không chấp nhận'
+                                                        : timelineItem.type === 'shared-fund-activity'
+                                                            ? 'Trượt trái để ẩn'
+                                                        : 'Trượt trái để trả lời/ẩn'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {!isLoading && activeSection === 'reminder'
                             ? sortedNotifications.map((item) => {
                               const isPaid = item.paymentStatus === 'paid';
                               const remainingDays = getRemainingDays(item.nextDueAt);
@@ -541,18 +1168,27 @@ export function NotificationDrawer({
 
                 <PrimaryButton
                     onClick={() => {
-                        setCreateCategoryId(expenseCategories[0]?.id || '');
-                        setCreateDueDay('1');
-                        setCreateActiveMonths('12');
-                        setCreateAmount('');
-                        setCreateDescription('');
-                        setCreateTelegramChatId('');
-                        setCreateError('');
-                        setIsCreateModalOpen(true);
+                        if (activeSection === 'reminder') {
+                            setCreateCategoryId(expenseCategories[0]?.id || '');
+                            setCreateDueDay('1');
+                            setCreateActiveMonths('12');
+                            setCreateAmount('');
+                            setCreateDescription('');
+                            setCreateTelegramChatId('');
+                            setCreateError('');
+                            setIsCreateModalOpen(true);
+                        }
                     }}
-                    style={{ justifyContent: 'center', minHeight: 44 }}
+                    disabled={activeSection === 'notification'}
+                    style={{ justifyContent: 'center', minHeight: 44, opacity: activeSection === 'notification' ? 0.5 : 1 }}
                 >
-                    <Plus size={16} /> Tạo nhắc lịch
+                    {activeSection === 'reminder' ? (
+                        <>
+                            <Plus size={16} /> Tạo nhắc lịch
+                        </>
+                    ) : (
+                        'Không có tác vụ'
+                    )}
                 </PrimaryButton>
             </aside>
 

@@ -107,6 +107,7 @@ const getWalletSummaryByUserId = async (
     return {
         wallets,
         totalAmount: Number(totals._sum.amount || 0),
+        requiresInitialSetup: false,
     };
 };
 
@@ -263,6 +264,7 @@ const mapWalletLogRow = (row: {
     id: string;
     walletId: string;
     transactionId: string | null;
+    actorDisplayName?: string | null;
     action: string;
     amount: unknown;
     balanceBefore: unknown;
@@ -273,6 +275,7 @@ const mapWalletLogRow = (row: {
     id: String(row.id),
     walletId: String(row.walletId),
     transactionId: row.transactionId ?? undefined,
+    actorDisplayName: row.actorDisplayName ?? undefined,
     action: String(row.action),
     amount: Number(row.amount || 0),
     balanceBefore: Number(row.balanceBefore || 0),
@@ -336,8 +339,38 @@ const getWalletLogsByWalletId = async (
         }),
     ]);
 
+    const transactionIds = Array.from(
+        new Set(
+            rows
+                .map((row) => row.transactionId)
+                .filter((value): value is string => Boolean(value)),
+        ),
+    );
+
+    const transactions = transactionIds.length > 0
+        ? await prisma.transaction.findMany({
+            where: {
+                id: {
+                    in: transactionIds,
+                },
+            },
+            select: {
+                id: true,
+                userName: true,
+            },
+        })
+        : [];
+
+    const actorNameMap = transactions.reduce<Record<string, string>>((acc, item) => {
+        acc[item.id] = item.userName || "";
+        return acc;
+    }, {});
+
     return {
-        items: rows.map(mapWalletLogRow),
+        items: rows.map((row) => mapWalletLogRow({
+            ...row,
+            actorDisplayName: row.transactionId ? actorNameMap[row.transactionId] : undefined,
+        })),
         page,
         limit,
         total,

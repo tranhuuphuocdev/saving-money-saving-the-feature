@@ -6,6 +6,7 @@ import categoryRoutes from "./category.routes";
 import budgetRoutes from "./budget.routes";
 import notificationRoutes from "./notification.routes";
 import aiRoutes from "./ai.routes";
+import messageRoutes from "./message.routes";
 import { authMiddleware } from "../../middlewares";
 
 const router = express.Router();
@@ -17,5 +18,6 @@ router.use("/categories", authMiddleware, categoryRoutes);
 router.use("/budgets", authMiddleware, budgetRoutes);
 router.use("/notifications", authMiddleware, notificationRoutes);
 router.use("/ai", authMiddleware, aiRoutes);
+router.use("/messages", authMiddleware, messageRoutes);
 
 export default router;

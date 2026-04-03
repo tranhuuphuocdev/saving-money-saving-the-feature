@@ -67,7 +67,7 @@ export function RegisterForm() {
                     </div>
                     <h1 style={{ margin: '12px 0 8px', fontSize: 26, lineHeight: 1.15 }}>Tạo tài khoản mới</h1>
                     <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.6, fontSize: 14 }}>
-                        Sau khi đăng ký hệ thống tự tạo 3 ví mặc định: Tiền mặt, Ngân hàng, Momo.
+                        Sau khi đăng ký, bạn sẽ cần nhập số tiền khởi tạo cho 3 ví mặc định: Tiền mặt, Ngân hàng, Momo.
                     </p>
                 </div>
 

@@ -2,23 +2,31 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getProfileRequest, loginRequest, loginWithGoogleRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest, uploadProfileAvatarRequest } from '@/lib/auth/api';
-import { createWalletRequest, getWalletsRequest, reorderWalletRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
+import { createWalletRequest, getWalletsRequest, initializeWalletSetupRequest, reorderWalletRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
 import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
 
 const AuthContext = createContext<IAuthContextValue | null>(null);
 
+function getPersonalWalletTotal(wallets: IWalletItem[]): number {
+    return wallets
+        .filter((wallet) => wallet.type !== 'shared-fund')
+        .reduce((sum, wallet) => sum + wallet.balance, 0);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<IUserSession | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [wallets, setWallets] = useState<IWalletItem[]>([]);
     const [totalWalletBalance, setTotalWalletBalance] = useState(0);
+    const [requiresInitialWalletSetup, setRequiresInitialWalletSetup] = useState(false);
 
     const refreshWallets = useCallback(async () => {
         const summary = await getWalletsRequest();
         setWallets(summary.wallets);
-        setTotalWalletBalance(summary.totalAmount);
+        setTotalWalletBalance(getPersonalWalletTotal(summary.wallets));
+        setRequiresInitialWalletSetup(summary.requiresInitialSetup);
     }, [user?.id]);
 
     const refreshWalletsSafely = useCallback(async () => {
@@ -27,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
             setWallets([]);
             setTotalWalletBalance(0);
+            setRequiresInitialWalletSetup(false);
         }
     }, [refreshWallets]);
 
@@ -124,6 +133,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
+    const initializeWalletSetup = useCallback(async (payload: { wallets: Array<{ walletId: string; balance: number }> }) => {
+        const summary = await initializeWalletSetupRequest(payload);
+        setWallets(summary.wallets);
+        setTotalWalletBalance(getPersonalWalletTotal(summary.wallets));
+        setRequiresInitialWalletSetup(summary.requiresInitialSetup);
+    }, []);
+
     const updateWalletActive = useCallback(async (walletId: string, isActive: boolean) => {
         await updateWalletActiveRequest(walletId, isActive);
         await refreshWalletsSafely();
@@ -159,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setWallets([]);
         setTotalWalletBalance(0);
+        setRequiresInitialWalletSetup(false);
     }, []);
 
     const value = useMemo<IAuthContextValue>(
@@ -168,10 +185,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isAuthenticated: Boolean(user),
             totalWalletBalance,
             wallets,
+            requiresInitialWalletSetup,
             login,
             loginWithGoogle,
             register,
             createWallet,
+            initializeWalletSetup,
             updateTelegramChatId,
             uploadAvatar,
             logout,
@@ -187,14 +206,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             loginWithGoogle,
             register,
             createWallet,
+            initializeWalletSetup,
             updateTelegramChatId,
             uploadAvatar,
             logout,
             refreshProfile,
             refreshWallets,
+            requiresInitialWalletSetup,
             totalWalletBalance,
             user,
             wallets,
+            requiresInitialWalletSetup,
             updateWalletActive,
             reorderWallets,
             dragReorderWallets,

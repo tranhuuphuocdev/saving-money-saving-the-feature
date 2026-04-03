@@ -26,6 +26,12 @@ model User {
   transactions  Transaction[]
   budgets       Budget[]
   notifications Notification[]
+  friendships   Friendship[] @relation("friendships")
+  friends       Friendship[] @relation("friends")
+  sentMessages  DirectMessage[] @relation("sentMessages")
+  receivedMessages DirectMessage[] @relation("receivedMessages")
+  sentRequests  FriendRequest[] @relation("sentRequests")
+  receivedRequests FriendRequest[] @relation("receivedRequests")
 
   @@map("users")
 }
@@ -186,4 +192,55 @@ model WalletLog {
   wallet Wallet @relation(fields: [walletId], references: [id])
 
   @@map("wallet_logs")
+}
+
+model Friendship {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("fs_id")
+  userId    String   @db.Uuid @map("u_id")
+  friendId  String   @db.Uuid @map("friend_u_id")
+  status    String   @default("pending") @map("fs_status")
+  createdAt BigInt   @map("created_at")
+  updatedAt BigInt   @map("updated_at")
+
+  user   User @relation("friendships", fields: [userId], references: [id], onDelete: Cascade)
+  friend User @relation("friends", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@map("friendships")
+}
+
+model DirectMessage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("dm_id")
+  senderId  String   @db.Uuid @map("sender_u_id")
+  receiverId String  @db.Uuid @map("receiver_u_id")
+  content   String   @map("dm_content")
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt BigInt   @map("created_at")
+  updatedAt BigInt   @map("updated_at")
+
+  sender   User @relation("sentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("receivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
+  @@map("direct_messages")
+}
+
+model FriendRequest {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("fr_id")
+  senderId  String   @db.Uuid @map("sender_u_id")
+  receiverId String  @db.Uuid @map("receiver_u_id")
+  status    String   @default("pending") @map("fr_status")
+  createdAt BigInt   @map("created_at")
+  updatedAt BigInt   @map("updated_at")
+
+  sender   User @relation("sentRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("receivedRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId])
+  @@map("friend_requests")
 }

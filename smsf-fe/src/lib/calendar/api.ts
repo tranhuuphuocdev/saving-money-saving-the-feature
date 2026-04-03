@@ -2,6 +2,7 @@ import { api } from '@/lib/auth/api';
 import {
     ICalendarTransaction,
     ICategoryItem,
+    IInitialWalletSetupPayload,
     ICreateTransactionPayload,
     ICreateWalletPayload,
     ITransactionQueryParams,
@@ -81,6 +82,13 @@ export async function createWalletRequest(
     payload: ICreateWalletPayload,
 ): Promise<IWalletItem> {
     const response = await api.post<IApiResponse<IWalletItem>>('/wallets', payload);
+    return response.data.data;
+}
+
+export async function initializeWalletSetupRequest(
+    payload: IInitialWalletSetupPayload,
+): Promise<IWalletSummary> {
+    const response = await api.post<IApiResponse<IWalletSummary>>('/wallets/initial-setup', payload);
     return response.data.data;
 }
 
@@ -404,6 +412,7 @@ export interface IWalletLogItem {
     id: string;
     walletId: string;
     transactionId?: string;
+    actorDisplayName?: string;
     action: string;
     amount: number;
     balanceBefore: number;

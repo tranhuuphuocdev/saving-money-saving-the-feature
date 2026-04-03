@@ -1,6 +1,6 @@
 'use client';
 
-import { Eye, EyeOff, History, LogOut, ShieldCheck, UserRound, WalletCards, X } from 'lucide-react';
+import { Eye, EyeOff, HandCoins, History, LogOut, MessageCircleMore, ShieldCheck, UserRound, Users2, WalletCards, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
 import { UserAvatar } from '@/components/common/user-avatar';
@@ -15,12 +15,14 @@ interface ISideDrawerProps {
     onClose: () => void;
     onLogout: () => void;
     onOpenWalletHistory: () => void;
+    onOpenFriends: () => void;
+    onOpenSharedFunds: () => void;
     user: IUserSession | null;
     totalWalletBalance: number;
     wallets: IWalletItem[];
 }
 
-export function SideDrawer({ isOpen, onClose, onLogout, onOpenWalletHistory, user, totalWalletBalance }: ISideDrawerProps) {
+export function SideDrawer({ isOpen, onClose, onLogout, onOpenWalletHistory, onOpenFriends, onOpenSharedFunds, user, totalWalletBalance }: ISideDrawerProps) {
     const router = useRouter();
     const { isVisible, toggle: toggleBalance } = useBalanceVisible();
     useLockBodyScroll(isOpen);
@@ -183,6 +185,58 @@ export function SideDrawer({ isOpen, onClose, onLogout, onOpenWalletHistory, use
                             <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Xem biến động số dư.</div>
                         </div>
                         <History size={18} color="var(--accent)" />
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            onClose();
+                            onOpenFriends();
+                        }}
+                        style={{
+                            borderRadius: 16,
+                            padding: '12px 14px',
+                            background: 'var(--surface-soft)',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            color: 'var(--foreground)',
+                        }}
+                    >
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>Bạn bè</div>
+                            <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Kết nối bạn bè bốn phương.</div>
+                            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 11.5 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users2 size={12} /> Kết bạn</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><MessageCircleMore size={12} /> Nhắn tin</span>
+                            </div>
+                        </div>
+                        <Users2 size={18} color="var(--accent)" />
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            onClose();
+                            onOpenSharedFunds();
+                        }}
+                        style={{
+                            borderRadius: 16,
+                            padding: '12px 14px',
+                            background: 'var(--surface-soft)',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            color: 'var(--foreground)',
+                        }}
+                    >
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>Quỹ chung</div>
+                            <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Quản lý quỹ và thành viên tham gia.</div>
+                        </div>
+                        <HandCoins size={18} color="var(--accent)" />
                     </button>
 
                     {/* Safe session badge */}

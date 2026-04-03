@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createWalletForUser, getWalletLogsForUser, getWalletSummary, reorderWalletForUser, setWalletActiveForUser } from "../services/wallet.service";
+import { createWalletForUser, getWalletLogsForUser, getWalletSummary, initializeWalletBalancesForUser, reorderWalletForUser, setWalletActiveForUser } from "../services/wallet.service";
 
 const getWallets = async (req: Request, res: Response): Promise<Response> => {
     const userId = String(req.user?.id || "").trim();
@@ -55,6 +55,44 @@ const createWallet = async (req: Request, res: Response): Promise<Response> => {
         return res.status(500).json({
             success: false,
             message: "Failed to create wallet.",
+        });
+    }
+};
+
+const initializeWallets = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({
+            success: false,
+            message: "Unauthorized.",
+        });
+    }
+
+    try {
+        const summary = await initializeWalletBalancesForUser(userId, {
+            wallets: req.body?.wallets,
+        });
+
+        return res.json({
+            success: true,
+            message: "Initial wallet setup completed successfully.",
+            data: summary,
+        });
+    } catch (error) {
+        const statusCode =
+            (error as Error & { statusCode?: number }).statusCode || 500;
+
+        if (statusCode >= 400 && statusCode < 500) {
+            return res.status(statusCode).json({
+                success: false,
+                message: (error as Error).message,
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to complete initial wallet setup.",
         });
     }
 };
@@ -145,4 +183,4 @@ const reorderWallet = async (req: Request, res: Response): Promise<Response> => 
     }
 };
 
-export { getWallets, createWallet, patchWallet, getWalletLogs, reorderWallet };
+export { getWallets, createWallet, initializeWallets, patchWallet, getWalletLogs, reorderWallet };

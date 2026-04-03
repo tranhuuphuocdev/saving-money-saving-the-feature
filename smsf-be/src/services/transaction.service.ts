@@ -84,8 +84,13 @@ const buildWalletLogDescription = (
     event: TypeWalletLogEvent,
     type: "income" | "expense",
     description?: string,
+    categoryName?: string,
 ): string => {
-    const baseDescription = String(description || "").trim() || getFallbackTransactionDescription(type);
+    const note = String(description || "").trim();
+    const categoryLabel = String(categoryName || "").trim();
+    const baseDescription = note
+        ? (categoryLabel ? `${categoryLabel}: ${note}` : note)
+        : categoryLabel || getFallbackTransactionDescription(type);
 
     if (event === "create") {
         return baseDescription;
@@ -132,7 +137,7 @@ const createTransactionForUser = async (
             txExecutor,
             {
                 transactionId: transaction.id,
-                description: buildWalletLogDescription("create", payload.type, transaction.description ?? payload.description),
+                description: buildWalletLogDescription("create", payload.type, transaction.description ?? payload.description, meta.categoryName),
             },
         );
         await syncBudgetJarsByTimestamp(userId, payload.timestamp, txExecutor);
@@ -190,7 +195,7 @@ const createTransactionsBulkForUser = async (
                 executor,
                 {
                     transactionId: transaction.id,
-                    description: buildWalletLogDescription("create", transaction.type, transaction.description),
+                    description: buildWalletLogDescription("create", transaction.type, transaction.description, transaction.categoryName),
                 },
             );
         }
@@ -254,7 +259,7 @@ const updateTransactionForUser = async (
             executor,
             {
                 transactionId: existing.id,
-                description: buildWalletLogDescription("update-revert", existing.type, existing.description),
+                description: buildWalletLogDescription("update-revert", existing.type, existing.description, existing.categoryName),
             },
         );
 
@@ -262,6 +267,15 @@ const updateTransactionForUser = async (
         // to avoid applying the new amount against a stale pre-revert balance.
         const walletToApply =
             existing.walletId === nextWalletId ? revertedWallet : nextWallet;
+
+        const resolvedCategory = payload.category ?? existing.category;
+        const resolvedTimestamp = payload.timestamp ?? existing.timestamp;
+        const meta = await resolveTransactionMeta(
+            userId,
+            actorUsername,
+            resolvedCategory,
+            resolvedTimestamp,
+        );
 
         await applyTransactionEffectToWallet(
             walletToApply,
@@ -275,17 +289,9 @@ const updateTransactionForUser = async (
                     "update-apply",
                     nextType,
                     payload.description ?? existing.description,
+                    meta.categoryName,
                 ),
             },
-        );
-
-        const resolvedCategory = payload.category ?? existing.category;
-        const resolvedTimestamp = payload.timestamp ?? existing.timestamp;
-        const meta = await resolveTransactionMeta(
-            userId,
-            actorUsername,
-            resolvedCategory,
-            resolvedTimestamp,
         );
 
         const updated = await updateTransaction(userId, transactionId, payload, meta, executor);
@@ -348,7 +354,7 @@ const deleteTransactionForUser = async (
             executor,
             {
                 transactionId: existing.id,
-                description: buildWalletLogDescription("delete", existing.type, existing.description),
+                description: buildWalletLogDescription("delete", existing.type, existing.description, existing.categoryName),
             },
         );
 

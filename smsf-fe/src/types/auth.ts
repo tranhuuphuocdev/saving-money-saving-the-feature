@@ -15,10 +15,12 @@ export interface IAuthContextValue {
     isAuthenticated: boolean;
     totalWalletBalance: number;
     wallets: IWalletItem[];
+    requiresInitialWalletSetup: boolean;
     login: (username: string, password: string) => Promise<void>;
     loginWithGoogle: (credential: string) => Promise<void>;
     register: (username: string, password: string, telegramChatId?: string) => Promise<void>;
     createWallet: (payload: { name: string; type?: string; balance?: number }) => Promise<void>;
+    initializeWalletSetup: (payload: { wallets: Array<{ walletId: string; balance: number }> }) => Promise<void>;
     updateTelegramChatId: (telegramChatId?: string, displayName?: string) => Promise<void>;
     uploadAvatar: (file: File) => Promise<void>;
     logout: () => Promise<void>;
