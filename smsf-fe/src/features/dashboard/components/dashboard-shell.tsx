@@ -414,24 +414,12 @@ export function DashboardShell() {
         const sharedFundActivityHandler = (item: ISharedFundActivityNotificationItem) => {
             setSharedFundActivities((previous) => [item, ...previous.filter((current) => current.id !== item.id)].slice(0, 30));
         };
-        const handleWindowFocus = () => {
-            void fetchPendingFriendRequests();
-            void fetchSharedFundInvites();
-        };
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                void fetchPendingFriendRequests();
-                void fetchSharedFundInvites();
-            }
-        };
 
         onFriendRequestReceived(friendRequestHandler);
         onFriendRequestResolved(friendRequestHandler);
         onSharedFundInviteReceived(sharedFundHandler);
         onSharedFundInviteResolved(sharedFundHandler);
         onSharedFundActivity(sharedFundActivityHandler);
-        window.addEventListener('focus', handleWindowFocus);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
             offFriendRequestReceived(friendRequestHandler);
@@ -439,8 +427,6 @@ export function DashboardShell() {
             offSharedFundInviteReceived(sharedFundHandler);
             offSharedFundInviteResolved(sharedFundHandler);
             offSharedFundActivity(sharedFundActivityHandler);
-            window.removeEventListener('focus', handleWindowFocus);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [fetchPendingFriendRequests, fetchSharedFundInvites, isAuthenticated]);
 

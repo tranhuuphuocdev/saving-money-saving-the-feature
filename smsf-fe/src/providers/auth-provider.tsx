@@ -2,7 +2,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getProfileRequest, loginRequest, loginWithGoogleRequest, logoutRequest, refreshAccessToken, registerRequest, updateProfileRequest, uploadProfileAvatarRequest } from '@/lib/auth/api';
-import { createWalletRequest, getWalletsRequest, initializeWalletSetupRequest, reorderWalletRequest, updateWalletActiveRequest } from '@/lib/calendar/api';
+import { createWalletRequest, getWalletsRequest, initializeWalletSetupRequest, reorderWalletRequest, updateWalletActiveRequest, updateWalletNameRequest } from '@/lib/calendar/api';
 import { clearSession, getStoredUser, setSession } from '@/lib/auth/storage';
 import { IAuthContextValue, IUserSession } from '@/types/auth';
 import { IWalletItem } from '@/types/calendar';
@@ -145,6 +145,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshWalletsSafely();
     }, [refreshWalletsSafely]);
 
+    const updateWalletName = useCallback(async (walletId: string, name: string) => {
+        await updateWalletNameRequest(walletId, name);
+        await refreshWalletsSafely();
+    }, [refreshWalletsSafely]);
+
     const reorderWallets = useCallback(async (walletId: string) => {
         const index = wallets.findIndex((w) => w.id === walletId);
         if (index <= 0) {
@@ -158,16 +163,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await reorderWalletRequest(walletId, 0);
     }, [wallets]);
 
-    const dragReorderWallets = useCallback(async (fromIndex: number, toIndex: number) => {
+    const dragReorderWallets = useCallback(async (fromIndex: number, toIndex: number, orderedWalletIds?: string[]) => {
         if (fromIndex === toIndex) {
             return;
         }
 
-        const next = [...wallets];
-        const [wallet] = next.splice(fromIndex, 1);
-        next.splice(toIndex, 0, wallet);
-        setWallets(next);
-        await reorderWalletRequest(wallet.id, toIndex);
+        const orderedIds = orderedWalletIds && orderedWalletIds.length > 0
+            ? orderedWalletIds
+            : wallets.map((wallet) => wallet.id);
+        const movingWalletId = orderedIds[fromIndex];
+
+        if (!movingWalletId) {
+            return;
+        }
+
+        const reorderedSubsetIds = [...orderedIds];
+        const [movedSubsetId] = reorderedSubsetIds.splice(fromIndex, 1);
+        reorderedSubsetIds.splice(toIndex, 0, movedSubsetId);
+
+        const subsetIdSet = new Set(orderedIds);
+        const desiredWallets: IWalletItem[] = [];
+        let subsetCursor = 0;
+
+        for (const wallet of wallets) {
+            if (!subsetIdSet.has(wallet.id)) {
+                desiredWallets.push(wallet);
+                continue;
+            }
+
+            const nextSubsetWalletId = reorderedSubsetIds[subsetCursor];
+            const nextSubsetWallet = wallets.find((candidate) => candidate.id === nextSubsetWalletId);
+            if (nextSubsetWallet) {
+                desiredWallets.push(nextSubsetWallet);
+            }
+            subsetCursor += 1;
+        }
+
+        setWallets(desiredWallets);
+
+        const persistedOrder = [...wallets];
+        for (let index = 0; index < desiredWallets.length; index += 1) {
+            const desiredWalletId = desiredWallets[index]?.id;
+            const currentIndex = persistedOrder.findIndex((wallet) => wallet.id === desiredWalletId);
+
+            if (!desiredWalletId || currentIndex < 0 || currentIndex === index) {
+                continue;
+            }
+
+            const [wallet] = persistedOrder.splice(currentIndex, 1);
+            persistedOrder.splice(index, 0, wallet);
+            await reorderWalletRequest(wallet.id, index);
+        }
     }, [wallets]);
 
     const logout = useCallback(async () => {
@@ -197,6 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             refreshProfile,
             refreshWallets,
             updateWalletActive,
+            updateWalletName,
             reorderWallets,
             dragReorderWallets,
         }),
@@ -218,6 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             wallets,
             requiresInitialWalletSetup,
             updateWalletActive,
+            updateWalletName,
             reorderWallets,
             dragReorderWallets,
         ],

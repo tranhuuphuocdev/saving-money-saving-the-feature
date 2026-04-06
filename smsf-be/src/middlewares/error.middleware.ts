@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { logApiError } from "../util/api-logger";
 
 /**
  * Middleware: Global error handler
@@ -9,10 +10,11 @@ const errorHandler = (
     res: Response,
     _next: NextFunction,
 ): void => {
-    console.error(`[Error] ${err.message}`);
-    console.error(err.stack);
-
     const statusCode = err.statusCode || 500;
+
+    logApiError(req, "Unhandled API error", err, {
+        statusCode,
+    });
 
     res.status(statusCode).json({
         success: false,

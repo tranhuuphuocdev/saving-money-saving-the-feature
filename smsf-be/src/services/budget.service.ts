@@ -200,7 +200,9 @@ const setupBudgetJarsByUser = async (
     payload: IBudgetJarSetupPayload,
 ): Promise<IBudgetJar[]> => {
     if (!payload.jars.length) {
-        return [];
+        await replaceJarBudgetsByUserAndMonth(userId, payload.month, payload.year, []);
+        await recalculateJarBudgetSpendingByUserAndMonth(userId, payload.month, payload.year);
+        return getBudgetJarsByUser(userId, payload.month, payload.year);
     }
 
     const categories = await getCategoriesByUser(userId, "expense");

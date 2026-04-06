@@ -8,6 +8,7 @@ import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import { createCategoryRequest, getCategoriesRequest, updateCategoryOrderRequest } from '@/lib/calendar/api';
 import { formatCurrencyVND, formatTimeLabel, formatTransactionTypeLabel } from '@/lib/formatters';
+import { getActiveSortedWallets } from '@/lib/wallet-selection';
 import {
     ICalendarTransaction,
     ICategoryItem,
@@ -52,24 +53,28 @@ export function TransactionModal({
     onDeleteTransaction,
 }: ITransactionModalProps) {
     const OTHER_CATEGORY_ID = 'other';
+    const availableWallets = useMemo(
+        () => getActiveSortedWallets(wallets),
+        [wallets],
+    );
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingTransactionId, setEditingTransactionId] = useState<string | null>(
         null,
     );
     const [amount, setAmount] = useState('');
     const richestWalletId = useMemo(() => {
-        if (wallets.length === 0) {
+        if (availableWallets.length === 0) {
             return '';
         }
 
-        return wallets.reduce((bestWallet, wallet) => {
+        return availableWallets.reduce((bestWallet, wallet) => {
             if (!bestWallet || wallet.balance > bestWallet.balance) {
                 return wallet;
             }
 
             return bestWallet;
-        }, wallets[0]).id;
-    }, [wallets]);
+        }, availableWallets[0]).id;
+    }, [availableWallets]);
 
     const [walletId, setWalletId] = useState(richestWalletId);
     const [categoryId, setCategoryId] = useState('');
@@ -155,10 +160,10 @@ export function TransactionModal({
             return;
         }
 
-        if (!wallets.some((wallet) => wallet.id === walletId)) {
+        if (!availableWallets.some((wallet) => wallet.id === walletId)) {
             setWalletId(richestWalletId);
         }
-    }, [isFormOpen, richestWalletId, walletId, wallets]);
+    }, [availableWallets, isFormOpen, richestWalletId, walletId]);
 
     const totalIncome = useMemo(
         () =>
@@ -541,7 +546,7 @@ export function TransactionModal({
                                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
                                     Chọn ví
                                 </div>
-                                {wallets.length === 0 ? (
+                                {availableWallets.length === 0 ? (
                                     <div
                                         style={{
                                             padding: '10px 12px',
@@ -551,13 +556,13 @@ export function TransactionModal({
                                             fontSize: 12,
                                         }}
                                     >
-                                        Chưa có ví để chọn.
+                                        Không có ví khả dụng để chọn.
                                     </div>
                                 ) : (
                                     <CustomSelect
                                         value={walletId}
                                         onChange={setWalletId}
-                                        options={wallets.map((wallet) => ({
+                                        options={availableWallets.map((wallet) => ({
                                             value: wallet.id,
                                             label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
                                         }))}

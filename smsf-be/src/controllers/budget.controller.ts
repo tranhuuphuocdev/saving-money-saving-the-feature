@@ -169,11 +169,11 @@ const setupBudgetJars = async (req: Request, res: Response): Promise<Response> =
         });
     }
 
-    const jars = Array.isArray(req.body?.jars) ? req.body.jars : [];
-    if (!jars.length) {
+    const jars = req.body?.jars;
+    if (!Array.isArray(jars)) {
         return res.status(400).json({
             success: false,
-            message: "jars is required and must contain at least one item.",
+            message: "jars is required and must be an array.",
         });
     }
 

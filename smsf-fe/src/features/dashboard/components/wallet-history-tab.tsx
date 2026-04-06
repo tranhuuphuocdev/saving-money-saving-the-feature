@@ -40,7 +40,7 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
     const [toDate, setToDate] = useState('');
 
     const sortedWallets = useMemo(
-        () => wallets,
+        () => wallets.filter((wallet) => wallet.type !== 'shared-fund'),
         [wallets],
     );
 
@@ -271,12 +271,6 @@ export function WalletHistoryTab({ wallets, preferredWalletId }: IWalletHistoryT
                             <div style={{ fontSize: 13, color: 'var(--foreground)', lineHeight: 1.5 }}>
                                 {log.description || 'Không có mô tả.'}
                             </div>
-
-                            {log.actorDisplayName ? (
-                                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                                    Thực hiện bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{log.actorDisplayName}</span>
-                                </div>
-                            ) : null}
 
                             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                                 {isBalanceVisible

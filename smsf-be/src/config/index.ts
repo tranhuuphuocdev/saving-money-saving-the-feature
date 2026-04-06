@@ -81,11 +81,6 @@ const config = {
         publicBaseUrl: process.env.R2_PUBLIC_BASE_URL || "",
         region: process.env.R2_REGION || "auto",
         enabled: parseBoolean(process.env.R2_ENABLED, false),
-    },
-    loki: {
-        LOKI_HOST: process.env.LOKI_HOST || "http://localhost:3100",
-        LOKI_ENABLE: process.env.LOKI_ENABLE === "true",
-        LOG_DIR: process.env.LOG_DIR || "/var/log/services/smsf-be",
     }
 };
 

@@ -2,12 +2,14 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
-import morgan from "morgan";
 import config from "./config";
 import routes from "./routes";
-import { errorHandler } from "./middlewares";
+import logger from "./util/logger";
+import { errorHandler, requestLoggingMiddleware } from "./middlewares";
 
 const app = express();
+
+logger.setServiceName("smsf-be");
 
 app.disable("x-powered-by");
 // Running behind nginx/gateway, trust the first upstream proxy for client IP.
@@ -40,7 +42,7 @@ app.use(
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use(morgan("dev"));
+app.use(requestLoggingMiddleware);
 
 // --- Routes ---
 app.use("/api", routes);

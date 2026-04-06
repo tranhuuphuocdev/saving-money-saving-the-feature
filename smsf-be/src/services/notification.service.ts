@@ -321,6 +321,7 @@ const payNotificationForUser = async (
                 timestamp: Date.now(),
             },
             actorUsername,
+            undefined,
             executor,
         );
 

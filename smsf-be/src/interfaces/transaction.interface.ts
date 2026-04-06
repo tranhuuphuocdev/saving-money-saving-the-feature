@@ -67,6 +67,7 @@ export interface IWalletLog {
     id: string;
     walletId: string;
     transactionId?: string;
+    createdBy?: string;
     actorDisplayName?: string;
     actorUsername?: string;
     action: string;

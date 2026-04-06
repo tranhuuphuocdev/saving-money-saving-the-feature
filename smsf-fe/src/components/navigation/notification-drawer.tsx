@@ -7,6 +7,7 @@ import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { sortWalletsForSelection } from '@/lib/wallet-selection';
 import { useLockBodyScroll } from '@/lib/ui/use-lock-body-scroll';
 import { ICategoryItem, IWalletItem } from '@/types/calendar';
 import { IFriendRequest } from '@/types/messages';
@@ -1425,7 +1426,7 @@ export function NotificationDrawer({
                             <CustomSelect
                                 value={payWalletId}
                                 onChange={setPayWalletId}
-                                options={wallets.map((wallet) => ({
+                                options={sortWalletsForSelection(wallets).map((wallet) => ({
                                     value: wallet.id,
                                     label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
                                 }))}

@@ -7,6 +7,7 @@ import { CategoryOrderModal } from '@/components/common/category-order-modal';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { getActiveSortedWallets } from '@/lib/wallet-selection';
 import {
     createCategoryRequest,
     createTransactionRequest,
@@ -90,8 +91,7 @@ export function FloatingTransactionBubble() {
         let ignore = false;
         Promise.all([getWalletsRequest(), getCategoriesRequest()]).then(([walletSummary, fetchedCats]) => {
             if (ignore) return;
-            const fetchedWallets = walletSummary.wallets;
-            const activeWallets = fetchedWallets.filter((w) => w.isActive !== false);
+            const activeWallets = getActiveSortedWallets(walletSummary.wallets);
             setWallets(activeWallets);
             setLocalCategories(fetchedCats);
 

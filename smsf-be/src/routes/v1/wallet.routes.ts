@@ -1,5 +1,14 @@
 import express from "express";
-import { createWallet, getWalletLogs, getWallets, initializeWallets, patchWallet, reorderWallet } from "../../controllers/wallet.controller";
+import {
+	createWallet,
+	getWalletLogs,
+	getWallets,
+	initializeWallets,
+	patchWallet,
+	reorderWallet,
+	transferWalletBalance,
+	updateWalletBalance,
+} from "../../controllers/wallet.controller";
 import {
 	acceptInvite,
 	createSharedFundInvite,
@@ -19,7 +28,9 @@ const router = express.Router();
 router.get("/", getWallets);
 router.post("/", createWallet);
 router.post("/initial-setup", initializeWallets);
+router.post("/transfer", transferWalletBalance);
 router.patch("/:id", patchWallet);
+router.patch("/:id/balance", updateWalletBalance);
 router.patch("/:id/reorder", reorderWallet);
 router.get("/:id/logs", getWalletLogs);
 

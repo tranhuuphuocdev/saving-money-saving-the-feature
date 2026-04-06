@@ -8,6 +8,8 @@ export function getWalletLogLabel(action: string): string {
     if (action === 'update-apply') return 'Cập nhật giao dịch';
     if (action === 'update-revert') return 'Hoàn tác cập nhật';
     if (action === 'delete') return 'Xóa giao dịch';
+    if (action === 'balance-set') return 'Điều chỉnh số dư';
+    if (action === 'wallet-unavailable') return 'Ví không khả dụng';
 
     return action;
 }

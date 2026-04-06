@@ -111,6 +111,7 @@ const createTransactionForUser = async (
     userId: string,
     payload: ICreateTransactionPayload,
     actorUsername?: string,
+    actorUserId?: string,
     executor?: DbExecutor,
 ): Promise<{ transaction: ITransaction; updatedWalletBalance: number }> => {
     const run = async (txExecutor: DbExecutor) => {
@@ -137,6 +138,7 @@ const createTransactionForUser = async (
             txExecutor,
             {
                 transactionId: transaction.id,
+                createdBy: actorUserId || userId,
                 description: buildWalletLogDescription("create", payload.type, transaction.description ?? payload.description, meta.categoryName),
             },
         );
@@ -159,6 +161,7 @@ const createTransactionsBulkForUser = async (
     userId: string,
     payloads: ICreateTransactionPayload[],
     actorUsername?: string,
+    actorUserId?: string,
 ): Promise<{ transactions: ITransaction[] }> => {
     return withTransaction(async (executor) => {
         const metadataItems = await Promise.all(
@@ -195,6 +198,7 @@ const createTransactionsBulkForUser = async (
                 executor,
                 {
                     transactionId: transaction.id,
+                    createdBy: actorUserId || userId,
                     description: buildWalletLogDescription("create", transaction.type, transaction.description, transaction.categoryName),
                 },
             );
@@ -224,6 +228,7 @@ const updateTransactionForUser = async (
     transactionId: string,
     payload: IUpdateTransactionPayload,
     actorUsername?: string,
+    actorUserId?: string,
 ): Promise<{ transaction: ITransaction; affectedWalletIds: string[] }> => {
     return withTransaction(async (executor) => {
         const existing = await getTransactionById(userId, transactionId, executor);
@@ -259,6 +264,7 @@ const updateTransactionForUser = async (
             executor,
             {
                 transactionId: existing.id,
+                createdBy: actorUserId || userId,
                 description: buildWalletLogDescription("update-revert", existing.type, existing.description, existing.categoryName),
             },
         );
@@ -285,6 +291,7 @@ const updateTransactionForUser = async (
             executor,
             {
                 transactionId: existing.id,
+                createdBy: actorUserId || userId,
                 description: buildWalletLogDescription(
                     "update-apply",
                     nextType,
@@ -318,6 +325,7 @@ const updateTransactionForUser = async (
 const deleteTransactionForUser = async (
     userId: string,
     transactionId: string,
+    actorUserId?: string,
 ): Promise<{
     deletedTransactionId: string;
     updatedWalletBalance: number;
@@ -354,6 +362,7 @@ const deleteTransactionForUser = async (
             executor,
             {
                 transactionId: existing.id,
+                createdBy: actorUserId || userId,
                 description: buildWalletLogDescription("delete", existing.type, existing.description, existing.categoryName),
             },
         );

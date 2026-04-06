@@ -22,6 +22,7 @@ import {
     updateTransactionRequest,
 } from '@/lib/calendar/api';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { getActiveSortedWallets } from '@/lib/wallet-selection';
 import { useAuth } from '@/providers/auth-provider';
 import {
     IAiMonthlyInsightResult,
@@ -686,7 +687,7 @@ export function ChatTab() {
 
     const walletOptions = useMemo(
         () =>
-            wallets.filter((wallet) => wallet.isActive !== false).map((wallet) => ({
+            getActiveSortedWallets(wallets).map((wallet) => ({
                 value: wallet.id,
                 label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
             })),

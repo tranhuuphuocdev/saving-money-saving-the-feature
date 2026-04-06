@@ -39,6 +39,23 @@ interface ITransactionMutationResponse {
     totalAmount: number;
 }
 
+interface IWalletTransferResponse {
+    transfer: {
+        fromWallet: IWalletItem;
+        toWallet: IWalletItem;
+    };
+    wallets: IWalletItem[];
+    totalAmount: number;
+    requiresInitialSetup: boolean;
+}
+
+interface IWalletBalanceUpdateResponse {
+    wallet: IWalletItem;
+    wallets: IWalletItem[];
+    totalAmount: number;
+    requiresInitialSetup: boolean;
+}
+
 interface ITransactionQueryResponse {
     items: Omit<ICalendarTransaction, 'date'>[];
     page: number;
@@ -100,11 +117,48 @@ export async function updateWalletActiveRequest(
     return response.data.data;
 }
 
+export async function updateWalletNameRequest(
+    walletId: string,
+    name: string,
+): Promise<IWalletItem> {
+    const response = await api.patch<IApiResponse<IWalletItem>>(`/wallets/${walletId}`, { name });
+    return response.data.data;
+}
+
 export async function reorderWalletRequest(
     walletId: string,
     orderIndex: number,
 ): Promise<void> {
     await api.patch(`/wallets/${walletId}/reorder`, { orderIndex });
+}
+
+export async function transferWalletBalanceRequest(payload: {
+    fromWalletId: string;
+    toWalletId: string;
+    amount: number;
+    description?: string;
+}): Promise<IWalletTransferResponse> {
+    const response = await api.post<IApiResponse<IWalletTransferResponse>>(
+        '/wallets/transfer',
+        payload,
+    );
+
+    return response.data.data;
+}
+
+export async function updateWalletBalanceRequest(
+    walletId: string,
+    payload: {
+        balance: number;
+        description?: string;
+    },
+): Promise<IWalletBalanceUpdateResponse> {
+    const response = await api.patch<IApiResponse<IWalletBalanceUpdateResponse>>(
+        `/wallets/${walletId}/balance`,
+        payload,
+    );
+
+    return response.data.data;
 }
 
 export async function getTransactionsByMonthRequest(

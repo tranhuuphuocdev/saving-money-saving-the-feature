@@ -1,7 +1,7 @@
 'use client';
 
-import { Check, LoaderCircle, Plus, UserPlus, Users2, X, TrendingUp, TrendingDown, LogOut, Download } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, ChevronUp, Download, GripVertical, LoaderCircle, LogOut, Plus, TrendingDown, TrendingUp, UserPlus, Users2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
 import { CustomSelect } from '@/components/common/custom-select';
@@ -34,13 +34,14 @@ import {
 } from '@/lib/socket-io';
 import { useAuth } from '@/providers/auth-provider';
 import { formatCurrencyVND } from '@/lib/formatters';
+import { getWalletTypeLabel } from '@/lib/wallet-type-label';
 import { getWalletLogLabel, isWalletLogCredit } from '@/lib/wallet-log-label';
 import { IFriendListItem } from '@/types/messages';
 import { ISharedFundInviteItem, ISharedFundMemberItem, ISharedFundContributionItem } from '@/types/shared-fund';
-import { IWalletLogItem } from '@/lib/calendar/api';
+import { IWalletLogItem, transferWalletBalanceRequest } from '@/lib/calendar/api';
 
 export function SharedFundCard() {
-    const { user, wallets, refreshWallets, totalWalletBalance } = useAuth();
+    const { user, wallets, refreshWallets, totalWalletBalance, updateWalletActive, updateWalletName, dragReorderWallets } = useAuth();
 
     const [friends, setFriends] = useState<IFriendListItem[]>([]);
     const [incomingInvites, setIncomingInvites] = useState<ISharedFundInviteItem[]>([]);
@@ -51,12 +52,18 @@ export function SharedFundCard() {
     const [fundBalance, setFundBalance] = useState('');
     const [sourceWalletId, setSourceWalletId] = useState('');
     const [isCreating, setIsCreating] = useState(false);
+    const [renameFundValue, setRenameFundValue] = useState('');
+    const [isRenamingFund, setIsRenamingFund] = useState(false);
 
     const [selectedWalletId, setSelectedWalletId] = useState('');
     const [isLoadingMembers, setIsLoadingMembers] = useState(false);
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
     const [inviteSearchKeyword, setInviteSearchKeyword] = useState('');
     const [invitingFriendId, setInvitingFriendId] = useState('');
+    const [togglingFundId, setTogglingFundId] = useState<string | null>(null);
+    const [draggingFundIndex, setDraggingFundIndex] = useState<number | null>(null);
+    const [dragOverFundIndex, setDragOverFundIndex] = useState<number | null>(null);
+    const suppressFundExpandRef = useRef(false);
 
     const [contributionStats, setContributionStats] = useState<ISharedFundContributionItem[]>([]);
     const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -69,7 +76,14 @@ export function SharedFundCard() {
     const [isMounted, setIsMounted] = useState(false);
     const [withdrawDialog, setWithdrawDialog] = useState<{ isOpen: boolean; targetWalletId: string; amount: string }>({ isOpen: false, targetWalletId: '', amount: '' });
     const [isWithdrawing, setIsWithdrawing] = useState(false);
+    const [depositSourceWalletId, setDepositSourceWalletId] = useState('');
+    const [depositAmount, setDepositAmount] = useState('');
+    const [depositDescription, setDepositDescription] = useState('');
+    const [isDepositing, setIsDepositing] = useState(false);
     const [nextOwnerId, setNextOwnerId] = useState('');
+    const [isStatsOpen, setIsStatsOpen] = useState(false);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+    const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
 
     const [actionLoadingMap, setActionLoadingMap] = useState<Record<string, boolean>>({});
     const [errorMessage, setErrorMessage] = useState('');
@@ -192,22 +206,10 @@ export function SharedFundCard() {
             setFriends(friendItems);
             setIncomingInvites(incomingItems);
             setOutgoingInvites(outgoingItems);
-
-            const sharedWalletIds = wallets
-                .filter((wallet) => wallet.type === 'shared-fund')
-                .map((wallet) => wallet.id);
-
-            setSelectedWalletId((current) => {
-                if (current && sharedWalletIds.includes(current)) {
-                    return current;
-                }
-
-                return sharedWalletIds[0] || '';
-            });
         } finally {
             setIsRefreshingOverview(false);
         }
-    }, [wallets]);
+    }, []);
 
     const loadMembers = useCallback(async (walletId: string) => {
         if (!walletId) {
@@ -287,7 +289,42 @@ export function SharedFundCard() {
     }, [loadData]);
 
     useEffect(() => {
+        const sharedWalletIds = sharedWallets.map((wallet) => wallet.id);
+
+        setSelectedWalletId((current) => {
+            if (!current) {
+                return '';
+            }
+
+            if (sharedWalletIds.includes(current)) {
+                return current;
+            }
+
+            return '';
+        });
+    }, [sharedWallets]);
+
+    useEffect(() => {
+        setRenameFundValue(selectedWallet?.name || '');
+    }, [selectedWallet?.name]);
+
+    useEffect(() => {
+        setIsStatsOpen(false);
+        setIsHistoryOpen(false);
+    }, [selectedWalletId]);
+
+    useEffect(() => {
         setSourceWalletId((current) => {
+            if (current && fundingWalletOptions.some((wallet) => wallet.id === current)) {
+                return current;
+            }
+
+            return fundingWalletOptions[0]?.id || '';
+        });
+    }, [fundingWalletOptions]);
+
+    useEffect(() => {
+        setDepositSourceWalletId((current) => {
             if (current && fundingWalletOptions.some((wallet) => wallet.id === current)) {
                 return current;
             }
@@ -463,6 +500,7 @@ export function SharedFundCard() {
         try {
             await leaveSharedFundRequest(selectedWalletId);
             setSuccessMessage('Bạn đã rời quỹ chung.');
+            setIsLeaveConfirmOpen(false);
             await refreshWallets();
             await loadData();
         } catch (error) {
@@ -534,6 +572,81 @@ export function SharedFundCard() {
         }
     }, [actionLoadingMap, loadData, loadMembers, nextOwnerId, refreshWallets, selectedWalletId]);
 
+    const handleDepositSharedFund = useCallback(async () => {
+        const amount = Number(depositAmount.replace(/\D/g, '') || 0);
+
+        if (!selectedWalletId || !depositSourceWalletId || amount <= 0) {
+            setErrorMessage('Vui lòng chọn ví nguồn và nhập số tiền hợp lệ để nạp quỹ.');
+            return;
+        }
+
+        setIsDepositing(true);
+        setErrorMessage('');
+        setSuccessMessage('');
+
+        try {
+            await transferWalletBalanceRequest({
+                fromWalletId: depositSourceWalletId,
+                toWalletId: selectedWalletId,
+                amount,
+                description: depositDescription.trim() || `Nạp tiền vào quỹ ${selectedWallet?.name || ''}`.trim(),
+            });
+            await refreshWallets();
+            await loadRecentHistory(selectedWalletId);
+            setDepositAmount('');
+            setDepositDescription('');
+            setSuccessMessage('Đã nạp tiền vào quỹ.');
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+                || 'Không thể nạp tiền vào quỹ.';
+            setErrorMessage(responseMessage);
+        } finally {
+            setIsDepositing(false);
+        }
+    }, [depositAmount, depositDescription, depositSourceWalletId, loadRecentHistory, refreshWallets, selectedWallet?.name, selectedWalletId]);
+
+    const handleRenameFund = useCallback(async () => {
+        const nextName = renameFundValue.trim();
+
+        if (!selectedWalletId) {
+            setErrorMessage('Vui lòng chọn quỹ cần đổi tên.');
+            return;
+        }
+
+        if (selectedMembership?.role !== 'owner') {
+            setErrorMessage('Chỉ chủ quỹ mới có thể đổi tên quỹ.');
+            return;
+        }
+
+        if (!nextName) {
+            setErrorMessage('Vui lòng nhập tên quỹ mới.');
+            return;
+        }
+
+        if (nextName.length > 40) {
+            setErrorMessage('Tên quỹ tối đa 40 ký tự.');
+            return;
+        }
+
+        setIsRenamingFund(true);
+        setErrorMessage('');
+        setSuccessMessage('');
+
+        try {
+            await updateWalletName(selectedWalletId, nextName);
+            await loadData();
+            setSuccessMessage('Đã cập nhật tên quỹ.');
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+                || 'Không thể cập nhật tên quỹ.';
+            setErrorMessage(responseMessage);
+        } finally {
+            setIsRenamingFund(false);
+        }
+    }, [loadData, renameFundValue, selectedMembership?.role, selectedWalletId, updateWalletName]);
+
     const closeInviteModal = useCallback(() => {
         setIsInviteModalOpen(false);
         setInviteSearchKeyword('');
@@ -548,6 +661,55 @@ export function SharedFundCard() {
         setIsInviteModalOpen(true);
         setInviteSearchKeyword('');
     }, [selectedWalletId]);
+
+    const handleToggleFundActive = useCallback(async (walletId: string, current: boolean) => {
+        setTogglingFundId(walletId);
+        setErrorMessage('');
+        setSuccessMessage('');
+
+        try {
+            await updateWalletActive(walletId, !current);
+            setSuccessMessage(!current ? 'Đã bật sử dụng quỹ trong giao dịch.' : 'Đã tắt sử dụng quỹ trong giao dịch.');
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+                || 'Không thể cập nhật trạng thái quỹ.';
+            setErrorMessage(responseMessage);
+        } finally {
+            setTogglingFundId(null);
+        }
+    }, [updateWalletActive]);
+
+    const handleFundDragStart = useCallback((walletIndex: number) => {
+        suppressFundExpandRef.current = true;
+        setDraggingFundIndex(walletIndex);
+    }, []);
+
+    const handleFundDragOver = useCallback((walletIndex: number) => {
+        setDragOverFundIndex(walletIndex);
+    }, []);
+
+    const handleFundDrop = useCallback(async (targetIndex: number) => {
+        if (draggingFundIndex === null || draggingFundIndex === targetIndex) {
+            setDraggingFundIndex(null);
+            setDragOverFundIndex(null);
+            return;
+        }
+
+        await dragReorderWallets(
+            draggingFundIndex,
+            targetIndex,
+            sharedWallets.map((wallet) => wallet.id),
+        );
+        setDraggingFundIndex(null);
+        setDragOverFundIndex(null);
+    }, [dragReorderWallets, draggingFundIndex, sharedWallets]);
+
+    const handleFundDragEnd = useCallback(() => {
+        suppressFundExpandRef.current = true;
+        setDraggingFundIndex(null);
+        setDragOverFundIndex(null);
+    }, []);
 
     const formatInviteDate = useCallback((timestamp: number) => {
         return new Intl.DateTimeFormat('vi-VN', {
@@ -623,351 +785,249 @@ export function SharedFundCard() {
                             {sharedWallets.length} quỹ · Tổng quỹ {formatCurrencyVND(sharedFundsTotalBalance)} · Ví cá nhân {formatCurrencyVND(totalWalletBalance)}
                         </div>
                     </div>
-                    <button
-                        type='button'
-                        onClick={handleOpenInviteModal}
-                        disabled={!selectedWalletId}
-                        style={{
-                            borderRadius: 10,
-                            border: '1px solid var(--surface-border)',
-                            background: 'var(--surface-strong)',
-                            color: 'var(--foreground)',
-                            minHeight: 34,
-                            padding: '0 10px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            fontWeight: 700,
-                            opacity: selectedWalletId ? 1 : 0.55,
-                        }}
-                    >
-                        <UserPlus size={14} /> Mời bạn
-                    </button>
                 </div>
 
                 {sharedWallets.length === 0 ? (
                     <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Bạn chưa có quỹ chung nào.</div>
                 ) : (
                     <div style={{ display: 'grid', gap: 8 }}>
-                        {sharedWallets.map((wallet) => {
+                        {sharedWallets.map((wallet, walletIndex) => {
                             const isSelected = wallet.id === selectedWalletId;
+                            const isDragOver = dragOverFundIndex === walletIndex;
+                            const isDragging = draggingFundIndex === walletIndex;
+                            const pendingInvites = outgoingInvites.filter((invite) => invite.walletId === wallet.id && invite.status === 'pending');
                             return (
-                                <button
+                                <div
                                     key={wallet.id}
-                                    type='button'
-                                    onClick={() => setSelectedWalletId(wallet.id)}
-                                    style={{
-                                        borderRadius: 10,
-                                        border: isSelected ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)',
-                                        background: isSelected ? 'var(--chip-bg)' : 'var(--surface-strong)',
-                                        color: 'var(--foreground)',
-                                        minHeight: 44,
-                                        padding: '0 12px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        textAlign: 'left',
+                                    draggable
+                                    onDragStart={() => handleFundDragStart(walletIndex)}
+                                    onDragOver={(event) => {
+                                        event.preventDefault();
+                                        handleFundDragOver(walletIndex);
                                     }}
+                                    onDrop={(event) => {
+                                        event.preventDefault();
+                                        void handleFundDrop(walletIndex);
+                                    }}
+                                    onDragEnd={handleFundDragEnd}
+                                    style={{ borderRadius: 12, border: isDragOver ? '1px dashed var(--accent)' : (isSelected ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)'), background: 'var(--surface-strong)', overflow: 'hidden', boxShadow: isSelected ? '0 10px 24px rgba(15, 23, 42, 0.08)' : 'none', opacity: wallet.isActive === false ? 0.55 : 1, transform: isDragging ? 'scale(0.99)' : 'translateY(0)', transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease' }}
                                 >
-                                    <span style={{ fontWeight: 700 }}>{wallet.name}</span>
-                                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{formatCurrencyVND(wallet.balance)}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+                                    <div
+                                        role='button'
+                                        tabIndex={0}
+                                        onClick={() => {
+                                            if (suppressFundExpandRef.current) {
+                                                suppressFundExpandRef.current = false;
+                                                return;
+                                            }
 
-            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Điều khiển quỹ</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                            {selectedWallet ? `${selectedWallet.name} · ${formatCurrencyVND(selectedWallet.balance)}` : 'Chọn một quỹ để thao tác'}
-                        </div>
-                    </div>
-                </div>
-
-                {!selectedWallet ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chọn quỹ chung để rút tiền hoặc rời quỹ.</div>
-                ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                        <button
-                            type='button'
-                            onClick={() => setWithdrawDialog((current) => ({ ...current, isOpen: true }))}
-                            disabled={fundingWalletOptions.length === 0}
-                            style={{
-                                minHeight: 38,
-                                borderRadius: 10,
-                                border: '1px solid color-mix(in srgb, #2563eb 35%, var(--surface-border))',
-                                background: 'color-mix(in srgb, #2563eb 12%, var(--surface-strong))',
-                                color: '#1d4ed8',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                                fontWeight: 800,
-                                opacity: fundingWalletOptions.length === 0 ? 0.55 : 1,
-                            }}
-                        >
-                            <Download size={14} /> Rút về ví
-                        </button>
-                        <button
-                            type='button'
-                            onClick={() => void handleLeaveSharedFund()}
-                            disabled={selectedMembership?.role === 'owner' || Boolean(actionLoadingMap[`leave-${selectedWallet.id}`])}
-                            style={{
-                                minHeight: 38,
-                                borderRadius: 10,
-                                border: '1px solid color-mix(in srgb, #ef4444 35%, var(--surface-border))',
-                                background: 'color-mix(in srgb, #ef4444 10%, var(--surface-strong))',
-                                color: '#dc2626',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                                fontWeight: 800,
-                                opacity: selectedMembership?.role === 'owner' ? 0.55 : 1,
-                            }}
-                        >
-                            <LogOut size={14} /> {actionLoadingMap[`leave-${selectedWallet.id}`] ? 'Đang rời...' : 'Rời quỹ'}
-                        </button>
-                    </div>
-                )}
-                {selectedWallet && fundingWalletOptions.length === 0 ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Bạn cần ít nhất một ví cá nhân đang hoạt động để nhận tiền rút từ quỹ.</div>
-                ) : null}
-                {selectedWallet && selectedMembership?.role === 'owner' ? (
-                    <div style={{ display: 'grid', gap: 8, marginTop: 4 }}>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Chuyển quyền chủ quỹ trước khi rời quỹ</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8 }}>
-                            <CustomSelect
-                                value={nextOwnerId}
-                                onChange={setNextOwnerId}
-                                options={transferOwnerOptions}
-                                placeholder='Chọn thành viên nhận quyền'
-                            />
-                            <button
-                                type='button'
-                                onClick={() => void handleTransferOwnership()}
-                                disabled={!nextOwnerId || Boolean(actionLoadingMap[`transfer-${selectedWallet.id}`])}
-                                style={{
-                                    minHeight: 38,
-                                    borderRadius: 10,
-                                    border: '1px solid color-mix(in srgb, #16a34a 35%, var(--surface-border))',
-                                    background: 'color-mix(in srgb, #16a34a 10%, var(--surface-strong))',
-                                    color: '#15803d',
-                                    padding: '0 12px',
-                                    fontWeight: 800,
-                                    opacity: !nextOwnerId ? 0.55 : 1,
-                                }}
-                            >
-                                {actionLoadingMap[`transfer-${selectedWallet.id}`] ? 'Đang chuyển...' : 'Chuyển quyền'}
-                            </button>
-                        </div>
-                    </div>
-                ) : null}
-            </div>
-
-            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8, minHeight: 180 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
-                        {selectedWallet ? `Thành viên quỹ: ${selectedWallet.name}` : 'Chọn một quỹ để xem thành viên'}
-                    </div>
-                    {selectedWallet ? <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{members.length} thành viên</span> : null}
-                </div>
-
-                {!selectedWallet ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Danh sách thành viên sẽ hiển thị tại đây sau khi bạn chọn quỹ.</div>
-                ) : members.length === 0 ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Quỹ này chưa có thành viên nào.</div>
-                ) : (
-                    <div
-                        style={{
-                            display: 'grid',
-                            gap: 8,
-                            maxHeight: 230,
-                            overflowY: 'auto',
-                            transition: 'opacity 180ms ease, transform 180ms ease',
-                            opacity: isLoadingMembers ? 0.55 : 1,
-                            transform: isLoadingMembers ? 'translateY(3px)' : 'translateY(0)',
-                        }}
-                    >
-                        {members.map((member) => (
-                            <div key={member.userId} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                    <UserAvatar src={member.avatarUrl || undefined} alt={member.displayName} size={30} />
-                                    <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.displayName}</div>
-                                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{member.username}</div>
-                                    </div>
-                                </div>
-                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    <div style={{ fontSize: 11.5, fontWeight: 700, color: member.role === 'owner' ? '#16a34a' : 'var(--muted)' }}>
-                                        {member.role === 'owner' ? 'Chủ quỹ' : 'Thành viên'}
-                                    </div>
-                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{formatInviteDate(member.joinedAt)}</div>
-                                </div>
-                            </div>
-                        ))}
-                        {selectedWalletId ? outgoingInvites
-                            .filter((invite) => invite.walletId === selectedWalletId && invite.status === 'pending')
-                            .map((invite) => (
-                                <div key={invite.inviteId} style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, var(--surface-border) 70%, transparent)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, opacity: 0.75 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                        <UserAvatar src={invite.receiverAvatarUrl || undefined} alt={invite.receiverName} size={30} />
-                                        <div style={{ minWidth: 0 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{invite.receiverName}</div>
-                                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{invite.receiverUsername}</div>
+                                            setSelectedWalletId((current) => current === wallet.id ? '' : wallet.id);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                setSelectedWalletId((current) => current === wallet.id ? '' : wallet.id);
+                                            }
+                                        }}
+                                        style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'transparent', color: 'var(--foreground)', textAlign: 'left', cursor: 'pointer' }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span
+                                                title='Kéo để sắp xếp'
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onClick={(event) => event.stopPropagation()}
+                                                style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid var(--surface-border)', color: 'var(--muted)', display: 'grid', placeItems: 'center', cursor: 'grab', flexShrink: 0 }}
+                                            >
+                                                <GripVertical size={13} />
+                                            </span>
+                                            <div>
+                                                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
+                                                <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {getWalletTypeLabel(wallet.type)}
+                                                    {wallet.isActive === false ? <span style={{ color: '#ef4444', fontWeight: 700, textTransform: 'none' }}>· Không dùng</span> : null}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <div style={{ fontWeight: 800, fontSize: 13.5 }}>{formatCurrencyVND(wallet.balance)}</div>
+                                            <button
+                                                type='button'
+                                                disabled={togglingFundId === wallet.id}
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleToggleFundActive(wallet.id, wallet.isActive !== false);
+                                                }}
+                                                title={wallet.isActive === false ? 'Bật sử dụng quỹ' : 'Tắt sử dụng quỹ'}
+                                                style={{ width: 44, height: 26, borderRadius: 999, border: wallet.isActive === false ? '1px solid var(--surface-border)' : '1px solid color-mix(in srgb, var(--theme-gradient-start) 65%, var(--surface-border))', background: wallet.isActive === false ? 'var(--surface-strong)' : 'color-mix(in srgb, var(--theme-gradient-start) 32%, var(--surface-soft))', padding: 2, display: 'flex', alignItems: 'center', justifyContent: wallet.isActive === false ? 'flex-start' : 'flex-end', transition: 'all 180ms ease', opacity: togglingFundId === wallet.id ? 0.6 : 1 }}
+                                            >
+                                                <span style={{ width: 20, height: 20, borderRadius: 999, background: wallet.isActive === false ? 'var(--muted)' : 'var(--theme-gradient-start)', boxShadow: wallet.isActive === false ? 'none' : '0 0 0 2px color-mix(in srgb, var(--theme-gradient-start) 18%, transparent)', transition: 'all 180ms ease' }} />
+                                            </button>
+                                            {isSelected ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>Đã mời</div>
-                                </div>
-                            )) : null}
-                    </div>
-                )}
-                {selectedWallet && isLoadingMembers ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}>
-                        <LoaderCircle size={12} className='spin' /> Đang cập nhật thành viên...
-                    </div>
-                ) : null}
-            </div>
 
-            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8, minHeight: 230, transition: 'opacity 220ms ease, transform 220ms ease', opacity: isRefreshingOverview ? 0.86 : 1, transform: isRefreshingOverview ? 'translateY(2px)' : 'translateY(0)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Thống kê nhập và chi theo người</div>
-                    {selectedWallet ? <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{contributionStats.length} thành viên</span> : null}
-                </div>
+                                    {isSelected ? (
+                                        <div style={{ borderTop: '1px solid var(--surface-border)', padding: 12, display: 'grid', gap: 12 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Điều khiển quỹ</div>
+                                                <button type='button' onClick={handleOpenInviteModal} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', color: 'var(--foreground)', minHeight: 34, padding: '0 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                                                    <UserPlus size={14} /> Mời bạn
+                                                </button>
+                                            </div>
 
-                {selectedWallet ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                        <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, #16a34a 25%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 8%, var(--surface-base))', padding: '8px 10px' }}>
-                            <div style={{ fontSize: 10.5, color: '#15803d', fontWeight: 800 }}>Tổng nhập</div>
-                            <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalIncome)}</div>
-                        </div>
-                        <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, #ef4444 25%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 7%, var(--surface-base))', padding: '8px 10px' }}>
-                            <div style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 800 }}>Tổng chi</div>
-                            <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalExpense)}</div>
-                        </div>
-                        <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 22%, var(--surface-border))', background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, var(--surface-base))', padding: '8px 10px' }}>
-                            <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 800 }}>Tổng luân chuyển</div>
-                            <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalFlow)}</div>
-                        </div>
-                    </div>
-                ) : null}
-
-                {!selectedWallet ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chọn quỹ để xem ai đã nạp và sử dụng quỹ.</div>
-                ) : contributionStats.length === 0 && !isLoadingStats ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có giao dịch nào để thống kê.</div>
-                ) : (
-                    <div style={{ display: 'grid', gap: 8, opacity: isLoadingStats ? 0.72 : 1, transition: 'opacity 160ms ease' }}>
-                        {contributionStats.map((item) => (
-                            <div key={item.userId} style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '10px 12px', display: 'grid', gap: 8 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                        <UserAvatar src={item.avatarUrl || undefined} alt={item.displayName} size={30} />
-                                        <div style={{ minWidth: 0 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.displayName}</div>
-                                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{item.username}</div>
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: 12, fontWeight: 800, color: item.net >= 0 ? '#16a34a' : '#dc2626' }}>
-                                        {item.net >= 0 ? '+' : ''}{formatCurrencyVND(item.net)}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                    <div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, #16a34a 30%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 10%, var(--surface-base))', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800 }}>
-                                        <TrendingUp size={13} color='#15803d' /> Nhập {formatCurrencyVND(item.incomeTotal)}
-                                    </div>
-                                    <div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, #ef4444 30%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 8%, var(--surface-base))', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800 }}>
-                                        <TrendingDown size={13} color='#dc2626' /> Chi {formatCurrencyVND(item.expenseTotal)}
-                                    </div>
-                                    <div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 26%, var(--surface-border))', background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, var(--surface-base))', padding: '5px 10px', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>
-                                        Tỷ trọng {contributionSummary.totalFlow > 0 ? `${Math.round(((item.incomeTotal + item.expenseTotal) * 100) / contributionSummary.totalFlow)}%` : '0%'}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                {selectedWallet && isLoadingStats ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 11.5 }}>
-                        <LoaderCircle size={12} className='spin' /> Đang cập nhật thống kê thành viên...
-                    </div>
-                ) : null}
-            </div>
-
-            <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 12, display: 'grid', gap: 8, transition: 'opacity 220ms ease, transform 220ms ease', opacity: isRefreshingOverview ? 0.86 : 1, transform: isRefreshingOverview ? 'translateY(2px)' : 'translateY(0)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Lịch sử quỹ gần nhất</div>
-                    {selectedWallet ? <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{selectedWallet.name}</span> : null}
-                </div>
-
-                {!selectedWallet ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chọn quỹ để xem lịch sử biến động gần nhất.</div>
-                ) : recentHistory.length === 0 && !isLoadingHistory ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Quỹ này chưa có lịch sử biến động.</div>
-                ) : (
-                    <div style={{ display: 'grid', gap: 6, opacity: isLoadingHistory ? 0.72 : 1, transition: 'opacity 160ms ease' }}>
-                        {recentHistory.map((log) => {
-                            const isCredit = isWalletLogCredit(log.action);
-                            const normalizedActorUsername = log.actorUsername?.trim().toLowerCase() || '';
-                            const mappedActorDisplayName = normalizedActorUsername ? actorDisplayNameByUsername[normalizedActorUsername] : '';
-                            const rawActorDisplayName = log.actorDisplayName?.trim() || '';
-                            const actorDisplayName = mappedActorDisplayName
-                                || (rawActorDisplayName && rawActorDisplayName.toLowerCase() !== normalizedActorUsername ? rawActorDisplayName : '')
-                                || (log.actorUsername?.trim() || '');
-                            return (
-                                <div key={log.id} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'grid', gap: 4 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                        <span style={{ borderRadius: 999, border: '1px solid var(--surface-border)', background: isCredit ? 'color-mix(in srgb, #16a34a 10%, var(--surface-base))' : 'color-mix(in srgb, #f97316 10%, var(--surface-base))', padding: '2px 7px', fontSize: 11, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316', flexShrink: 0 }}>
-                                            {getWalletLogLabel(log.action)}
-                                        </span>
-                                        <span style={{ fontSize: 13.5, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {isCredit ? '+' : '-'}{formatCurrencyVND(log.amount)}
-                                        </span>
-                                        <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                            {formatInviteDate(log.createdAt)}
-                                        </span>
-                                    </div>
-                                    <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <span>{formatCurrencyVND(log.balanceBefore)}</span>
-                                        <span>→</span>
-                                        <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{formatCurrencyVND(log.balanceAfter)}</span>
-                                    </div>
-                                    {(log.description || actorDisplayName) ? (
-                                        <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {log.description ? <span style={{ marginRight: 6 }}>{log.description}</span> : null}
-                                            {actorDisplayName ? (
-                                                <span>
-                                                    bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{actorDisplayName}</span>
-                                                    {log.actorUsername && actorDisplayName.toLowerCase() !== normalizedActorUsername ? ` @${log.actorUsername}` : ''}
-                                                </span>
+                                            {selectedMembership?.role === 'owner' ? (
+                                                <div style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 10, display: 'grid', gap: 8 }}>
+                                                    <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Đổi tên quỹ</div>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                                                        <input value={renameFundValue} onChange={(event) => setRenameFundValue(event.target.value)} placeholder='Tên quỹ mới' style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 38, padding: '0 10px', fontSize: 13 }} />
+                                                        <PrimaryButton onClick={() => void handleRenameFund()} disabled={isRenamingFund} style={{ justifyContent: 'center', minWidth: 120 }}>
+                                                            {isRenamingFund ? 'Đang đổi...' : 'Đổi tên'}
+                                                        </PrimaryButton>
+                                                    </div>
+                                                </div>
                                             ) : null}
+
+                                            <div style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 10, display: 'grid', gap: 8 }}>
+                                                <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Nạp tiền vào quỹ</div>
+                                                <CustomSelect
+                                                    value={depositSourceWalletId}
+                                                    onChange={setDepositSourceWalletId}
+                                                    options={sourceWalletSelectOptions}
+                                                    placeholder='Chọn ví nguồn'
+                                                />
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.2fr)', gap: 8 }}>
+                                                    <input
+                                                        inputMode='numeric'
+                                                        value={depositAmount ? new Intl.NumberFormat('vi-VN').format(Number(depositAmount.replace(/\D/g, '') || 0)) : ''}
+                                                        onChange={(event) => setDepositAmount(event.target.value.replace(/\D/g, ''))}
+                                                        placeholder='Số tiền nạp'
+                                                        style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 38, padding: '0 10px', fontSize: 13 }}
+                                                    />
+                                                    <input
+                                                        value={depositDescription}
+                                                        onChange={(event) => setDepositDescription(event.target.value)}
+                                                        placeholder='Ghi chú nạp tiền'
+                                                        style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 38, padding: '0 10px', fontSize: 13 }}
+                                                    />
+                                                </div>
+                                                <PrimaryButton onClick={() => void handleDepositSharedFund()} disabled={isDepositing || fundingWalletOptions.length === 0} style={{ justifyContent: 'center' }}>
+                                                    {isDepositing ? 'Đang nạp...' : 'Nạp vào quỹ'}
+                                                </PrimaryButton>
+                                                {fundingWalletOptions.length === 0 ? <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Bạn cần ít nhất một ví cá nhân đang hoạt động để nạp tiền vào quỹ.</div> : null}
+                                            </div>
+
+                                            {selectedMembership?.role === 'owner' ? (
+                                                <div style={{ display: 'grid', gap: 8 }}>
+                                                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Chuyển quyền chủ quỹ trước khi rời quỹ</div>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8 }}>
+                                                        <CustomSelect value={nextOwnerId} onChange={setNextOwnerId} options={transferOwnerOptions} placeholder='Chọn thành viên nhận quyền' />
+                                                        <button type='button' onClick={() => void handleTransferOwnership()} disabled={!nextOwnerId || Boolean(actionLoadingMap[`transfer-${wallet.id}`])} style={{ minHeight: 38, borderRadius: 10, border: '1px solid color-mix(in srgb, #16a34a 35%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 10%, var(--surface-strong))', color: '#15803d', padding: '0 12px', fontWeight: 800, opacity: !nextOwnerId ? 0.55 : 1 }}>
+                                                            {actionLoadingMap[`transfer-${wallet.id}`] ? 'Đang chuyển...' : 'Chuyển quyền'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : null}
+
+                                            <div style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: 10, display: 'grid', gap: 8, minHeight: 180 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Thành viên quỹ</div>
+                                                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{members.length} thành viên</span>
+                                                </div>
+                                                {members.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Quỹ này chưa có thành viên nào.</div> : (
+                                                    <div style={{ display: 'grid', gap: 8, maxHeight: 230, overflowY: 'auto', opacity: isLoadingMembers ? 0.55 : 1, transform: isLoadingMembers ? 'translateY(3px)' : 'translateY(0)', transition: 'opacity 180ms ease, transform 180ms ease' }}>
+                                                        {members.map((member) => (
+                                                            <div key={member.userId} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                                                    <UserAvatar src={member.avatarUrl || undefined} alt={member.displayName} size={30} />
+                                                                    <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.displayName}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{member.username}</div></div>
+                                                                </div>
+                                                                <div style={{ textAlign: 'right', flexShrink: 0 }}><div style={{ fontSize: 11.5, fontWeight: 700, color: member.role === 'owner' ? '#16a34a' : 'var(--muted)' }}>{member.role === 'owner' ? 'Chủ quỹ' : 'Thành viên'}</div><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{formatInviteDate(member.joinedAt)}</div></div>
+                                                            </div>
+                                                        ))}
+                                                        {pendingInvites.map((invite) => (
+                                                            <div key={invite.inviteId} style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, var(--surface-border) 70%, transparent)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, opacity: 0.75 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                                                    <UserAvatar src={invite.receiverAvatarUrl || undefined} alt={invite.receiverName} size={30} />
+                                                                    <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{invite.receiverName}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{invite.receiverUsername}</div></div>
+                                                                </div>
+                                                                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>Đã mời</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {isLoadingMembers ? <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}><LoaderCircle size={12} className='spin' /> Đang cập nhật thành viên...</div> : null}
+                                            </div>
+
+                                            <div style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', overflow: 'hidden', opacity: isRefreshingOverview ? 0.86 : 1, transform: isRefreshingOverview ? 'translateY(2px)' : 'translateY(0)', transition: 'opacity 220ms ease, transform 220ms ease' }}>
+                                                <button type='button' onClick={() => setIsStatsOpen((current) => !current)} style={{ width: '100%', padding: '10px 12px', border: 'none', background: 'transparent', color: 'var(--foreground)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Thống kê nhập và chi theo người</span>
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 11.5 }}>{contributionStats.length} thành viên {isStatsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+                                                </button>
+                                                {isStatsOpen ? (
+                                                    <div style={{ borderTop: '1px solid var(--surface-border)', padding: 10, display: 'grid', gap: 8 }}>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                                                            <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, #16a34a 25%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 8%, var(--surface-base))', padding: '8px 10px' }}><div style={{ fontSize: 10.5, color: '#15803d', fontWeight: 800 }}>Tổng nhập</div><div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalIncome)}</div></div>
+                                                            <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, #ef4444 25%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 7%, var(--surface-base))', padding: '8px 10px' }}><div style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 800 }}>Tổng chi</div><div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalExpense)}</div></div>
+                                                            <div style={{ borderRadius: 10, border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 22%, var(--surface-border))', background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, var(--surface-base))', padding: '8px 10px' }}><div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 800 }}>Tổng luân chuyển</div><div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 2 }}>{formatCurrencyVND(contributionSummary.totalFlow)}</div></div>
+                                                        </div>
+                                                        {contributionStats.length === 0 && !isLoadingStats ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có giao dịch nào để thống kê.</div> : (
+                                                            <div style={{ display: 'grid', gap: 8, opacity: isLoadingStats ? 0.72 : 1, transition: 'opacity 160ms ease' }}>
+                                                                {contributionStats.map((item) => (
+                                                                    <div key={item.userId} style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '10px 12px', display: 'grid', gap: 8 }}>
+                                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}><UserAvatar src={item.avatarUrl || undefined} alt={item.displayName} size={30} /><div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.displayName}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>@{item.username}</div></div></div><div style={{ fontSize: 12, fontWeight: 800, color: item.net >= 0 ? '#16a34a' : '#dc2626' }}>{item.net >= 0 ? '+' : ''}{formatCurrencyVND(item.net)}</div></div>
+                                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, #16a34a 30%, var(--surface-border))', background: 'color-mix(in srgb, #16a34a 10%, var(--surface-base))', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800 }}><TrendingUp size={13} color='#15803d' /> Nhập {formatCurrencyVND(item.incomeTotal)}</div><div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, #ef4444 30%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 8%, var(--surface-base))', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800 }}><TrendingDown size={13} color='#dc2626' /> Chi {formatCurrencyVND(item.expenseTotal)}</div><div style={{ borderRadius: 999, border: '1px solid color-mix(in srgb, var(--theme-gradient-start) 26%, var(--surface-border))', background: 'color-mix(in srgb, var(--theme-gradient-start) 8%, var(--surface-base))', padding: '5px 10px', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>Tỷ trọng {contributionSummary.totalFlow > 0 ? `${Math.round(((item.incomeTotal + item.expenseTotal) * 100) / contributionSummary.totalFlow)}%` : '0%'}</div></div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {isLoadingStats ? <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 11.5 }}><LoaderCircle size={12} className='spin' /> Đang cập nhật thống kê thành viên...</div> : null}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+
+                                            <div style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', overflow: 'hidden', opacity: isRefreshingOverview ? 0.86 : 1, transform: isRefreshingOverview ? 'translateY(2px)' : 'translateY(0)', transition: 'opacity 220ms ease, transform 220ms ease' }}>
+                                                <button type='button' onClick={() => setIsHistoryOpen((current) => !current)} style={{ width: '100%', padding: '10px 12px', border: 'none', background: 'transparent', color: 'var(--foreground)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Lịch sử quỹ gần nhất</span>
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 11.5 }}>{wallet.name} {isHistoryOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+                                                </button>
+                                                {isHistoryOpen ? (
+                                                    <div style={{ borderTop: '1px solid var(--surface-border)', padding: 10, display: 'grid', gap: 8 }}>
+                                                        {recentHistory.length === 0 && !isLoadingHistory ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Quỹ này chưa có lịch sử biến động.</div> : (
+                                                            <div style={{ display: 'grid', gap: 6, opacity: isLoadingHistory ? 0.72 : 1, transition: 'opacity 160ms ease' }}>
+                                                                {recentHistory.map((log) => {
+                                                                    const isCredit = isWalletLogCredit(log.action);
+                                                                    const normalizedActorUsername = log.actorUsername?.trim().toLowerCase() || '';
+                                                                    const mappedActorDisplayName = normalizedActorUsername ? actorDisplayNameByUsername[normalizedActorUsername] : '';
+                                                                    const rawActorDisplayName = log.actorDisplayName?.trim() || '';
+                                                                    const actorDisplayName = mappedActorDisplayName || (rawActorDisplayName && rawActorDisplayName.toLowerCase() !== normalizedActorUsername ? rawActorDisplayName : '') || (log.actorUsername?.trim() || '') || 'Không rõ';
+                                                                    return <div key={log.id} style={{ borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', padding: '8px 10px', display: 'grid', gap: 4 }}><div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><span style={{ borderRadius: 999, border: '1px solid var(--surface-border)', background: isCredit ? 'color-mix(in srgb, #16a34a 10%, var(--surface-base))' : 'color-mix(in srgb, #f97316 10%, var(--surface-base))', padding: '2px 7px', fontSize: 11, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316', flexShrink: 0 }}>{getWalletLogLabel(log.action)}</span><span style={{ fontSize: 13.5, fontWeight: 800, color: isCredit ? '#16a34a' : '#f97316', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isCredit ? '+' : '-'}{formatCurrencyVND(log.amount)}</span><span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>{formatInviteDate(log.createdAt)}</span></div><div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}><span>{formatCurrencyVND(log.balanceBefore)}</span><span>→</span><span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{formatCurrencyVND(log.balanceAfter)}</span></div>{(log.description || actorDisplayName) ? <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.description ? <span style={{ marginRight: 6 }}>{log.description}</span> : null}{actorDisplayName ? <span>bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{actorDisplayName}</span>{log.actorUsername && actorDisplayName.toLowerCase() !== normalizedActorUsername ? ` @${log.actorUsername}` : ''}</span> : null}</div> : null}</div>;
+                                                                })}
+                                                                {historyHasMore ? <button type='button' onClick={() => void loadMoreHistory()} disabled={isLoadingMoreHistory} style={{ borderRadius: 8, border: '1px solid var(--surface-border)', background: 'transparent', color: 'var(--muted)', padding: '6px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>{isLoadingMoreHistory ? <LoaderCircle size={12} className='spin' /> : null}{isLoadingMoreHistory ? 'Đang tải...' : 'Hiển thị thêm'}</button> : null}
+                                                            </div>
+                                                        )}
+                                                        {isLoadingHistory ? <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 11.5 }}><LoaderCircle size={12} className='spin' /> Đang tải lịch sử quỹ...</div> : null}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+
+                                            {fundingWalletOptions.length === 0 ? <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Bạn cần ít nhất một ví cá nhân đang hoạt động để nhận tiền rút từ quỹ.</div> : null}
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 4 }}>
+                                                <button type='button' onClick={() => setWithdrawDialog((current) => ({ ...current, isOpen: true }))} disabled={fundingWalletOptions.length === 0} style={{ minHeight: 38, borderRadius: 10, border: '1px solid color-mix(in srgb, #2563eb 35%, var(--surface-border))', background: 'color-mix(in srgb, #2563eb 12%, var(--surface-strong))', color: '#1d4ed8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 800, opacity: fundingWalletOptions.length === 0 ? 0.55 : 1 }}>
+                                                    <Download size={14} /> Rút về ví
+                                                </button>
+                                                <button type='button' onClick={() => setIsLeaveConfirmOpen(true)} disabled={selectedMembership?.role === 'owner' || Boolean(actionLoadingMap[`leave-${wallet.id}`])} style={{ minHeight: 38, borderRadius: 10, border: '1px solid color-mix(in srgb, #ef4444 35%, var(--surface-border))', background: 'color-mix(in srgb, #ef4444 10%, var(--surface-strong))', color: '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 800, opacity: selectedMembership?.role === 'owner' ? 0.55 : 1 }}>
+                                                    <LogOut size={14} /> {actionLoadingMap[`leave-${wallet.id}`] ? 'Đang rời...' : 'Rời quỹ'}
+                                                </button>
+                                            </div>
                                         </div>
                                     ) : null}
                                 </div>
                             );
                         })}
-                        {historyHasMore ? (
-                            <button
-                                type='button'
-                                onClick={() => void loadMoreHistory()}
-                                disabled={isLoadingMoreHistory}
-                                style={{ borderRadius: 8, border: '1px solid var(--surface-border)', background: 'transparent', color: 'var(--muted)', padding: '6px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            >
-                                {isLoadingMoreHistory ? <LoaderCircle size={12} className='spin' /> : null}
-                                {isLoadingMoreHistory ? 'Đang tải...' : 'Hiển thị thêm'}
-                            </button>
-                        ) : null}
                     </div>
                 )}
-                {selectedWallet && isLoadingHistory ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 11.5 }}>
-                        <LoaderCircle size={12} className='spin' /> Đang tải lịch sử quỹ...
-                    </div>
-                ) : null}
             </div>
 
             {incomingInvites.length > 0 ? (
@@ -1152,6 +1212,80 @@ export function SharedFundCard() {
                     </div>
                 </>,
                 document.body,
+            ) : null}
+
+            {isLeaveConfirmOpen ? (
+                <>
+                    <div
+                        role='presentation'
+                        onClick={() => setIsLeaveConfirmOpen(false)}
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            background: 'rgba(2, 8, 23, 0.5)',
+                            zIndex: 62,
+                        }}
+                    />
+                    <div
+                        role='dialog'
+                        aria-modal='true'
+                        style={{
+                            position: 'fixed',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: 'min(92vw, 400px)',
+                            borderRadius: 16,
+                            border: '1px solid var(--surface-border)',
+                            background: 'var(--surface-strong)',
+                            boxShadow: '0 24px 80px rgba(0,0,0,0.35)',
+                            zIndex: 63,
+                            display: 'grid',
+                            gap: 12,
+                            padding: 16,
+                        }}
+                    >
+                        <div>
+                            <div style={{ fontWeight: 800 }}>Xác nhận rời quỹ</div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                                Bạn có chắc muốn rời quỹ {selectedWallet?.name || 'này'} không?
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                            <button
+                                type='button'
+                                onClick={() => setIsLeaveConfirmOpen(false)}
+                                style={{
+                                    minHeight: 38,
+                                    borderRadius: 10,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-soft)',
+                                    color: 'var(--foreground)',
+                                    fontWeight: 700,
+                                }}
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                type='button'
+                                onClick={() => void handleLeaveSharedFund()}
+                                disabled={Boolean(selectedWalletId && actionLoadingMap[`leave-${selectedWalletId}`])}
+                                style={{
+                                    minHeight: 38,
+                                    borderRadius: 10,
+                                    border: '1px solid color-mix(in srgb, #ef4444 35%, var(--surface-border))',
+                                    background: 'color-mix(in srgb, #ef4444 10%, var(--surface-strong))',
+                                    color: '#dc2626',
+                                    fontWeight: 800,
+                                    opacity: selectedWalletId && actionLoadingMap[`leave-${selectedWalletId}`] ? 0.6 : 1,
+                                }}
+                            >
+                                {selectedWalletId && actionLoadingMap[`leave-${selectedWalletId}`] ? 'Đang rời...' : 'Xác nhận rời quỹ'}
+                            </button>
+                        </div>
+                    </div>
+                </>
             ) : null}
 
             {withdrawDialog.isOpen ? (

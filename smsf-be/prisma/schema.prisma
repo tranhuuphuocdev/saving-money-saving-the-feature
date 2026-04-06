@@ -32,6 +32,7 @@ model User {
   receivedMessages DirectMessage[] @relation("receivedMessages")
   sentRequests  FriendRequest[] @relation("sentRequests")
   receivedRequests FriendRequest[] @relation("receivedRequests")
+  createdWalletLogs WalletLog[] @relation("WalletLogCreator")
 
   @@map("users")
 }
@@ -182,6 +183,7 @@ model WalletLog {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("wl_id")
   walletId      String   @map("w_id")
   transactionId String?  @map("txn_id")
+  createdBy     String?  @db.Uuid @map("created_by")
   action        String   @map("wl_action")
   amount        Decimal  @default(0) @db.Decimal(18, 2) @map("wl_amount")
   balanceBefore Decimal  @default(0) @db.Decimal(18, 2) @map("wl_balance_before")
@@ -190,6 +192,7 @@ model WalletLog {
   createdAt     BigInt   @map("created_at")
 
   wallet Wallet @relation(fields: [walletId], references: [id])
+  creator User? @relation("WalletLogCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@map("wallet_logs")
 }

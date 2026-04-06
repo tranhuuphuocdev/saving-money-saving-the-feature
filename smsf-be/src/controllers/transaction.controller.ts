@@ -24,6 +24,7 @@ import { getWalletSummary } from "../services/wallet.service";
 import { emitToUser } from "../lib/socket";
 import { prisma } from "../lib/prisma";
 import { listSharedFundMemberIds } from "../services/shared-fund.service";
+import { logApiError, logApiInfo, logApiWarn } from "../util/api-logger";
 
 const notifySharedFundActivity = async (payload: {
     walletId: string;
@@ -180,6 +181,7 @@ const getTransactions = async (req: Request, res: Response): Promise<Response> =
     const userId = String(req.user?.id || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Get transactions request rejected: missing user");
         return res.status(401).json({
             success: false,
             message: "Unauthorized.",
@@ -192,6 +194,10 @@ const getTransactions = async (req: Request, res: Response): Promise<Response> =
     );
 
     if (error) {
+        logApiWarn(req, "Get transactions request rejected: invalid month/year", {
+            month: req.query.month,
+            year: req.query.year,
+        });
         return res.status(400).json({
             success: false,
             message: error,
@@ -199,6 +205,12 @@ const getTransactions = async (req: Request, res: Response): Promise<Response> =
     }
 
     const transactions = await listTransactionsByMonth(userId, month, year);
+
+    logApiInfo(req, "Transactions loaded by month", {
+        month,
+        year,
+        itemCount: transactions.length,
+    });
 
     return res.json({
         success: true,
@@ -213,6 +225,7 @@ const queryTransactions = async (
     const userId = String(req.user?.id || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Query transactions request rejected: missing user");
         return res.status(401).json({
             success: false,
             message: "Unauthorized.",
@@ -222,6 +235,9 @@ const queryTransactions = async (
     const query = parseTransactionQuery(req.query);
 
     if (query.error) {
+        logApiWarn(req, "Query transactions request rejected: invalid query", {
+            error: query.error,
+        });
         return res.status(400).json({
             success: false,
             message: query.error,
@@ -238,6 +254,20 @@ const queryTransactions = async (
         endTime: query.endTime,
     });
 
+    logApiInfo(req, "Transactions queried", {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        itemCount: result.items.length,
+        filters: {
+            category: query.category,
+            categories: query.categories,
+            description: query.description,
+            startTime: query.startTime,
+            endTime: query.endTime,
+        },
+    });
+
     return res.json({
         success: true,
         data: result,
@@ -251,6 +281,7 @@ const createTransaction = async (
     const userId = String(req.user?.id || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Create transaction request rejected: missing user");
         return res.status(401).json({
             success: false,
             message: "Unauthorized.",
@@ -260,6 +291,9 @@ const createTransaction = async (
     const validation = validateCreateTransactionPayload(req.body);
 
     if (!validation.isValid || !validation.payload) {
+        logApiWarn(req, "Create transaction request rejected: validation failed", {
+            validationErrors: validation.errors,
+        });
         return res.status(400).json({
             success: false,
             message: "Validation failed.",
@@ -272,6 +306,7 @@ const createTransaction = async (
             userId,
             validation.payload,
             String(req.user?.username || "").trim() || undefined,
+            userId,
         );
         await notifySharedFundActivity({
             walletId: result.transaction.walletId,
@@ -285,6 +320,15 @@ const createTransaction = async (
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
+        logApiInfo(req, "Transaction created", {
+            transactionId: result.transaction.id,
+            walletId: result.transaction.walletId,
+            amount: result.transaction.amount,
+            transactionType: result.transaction.type,
+            category: result.transaction.category,
+            updatedWalletBalance: result.updatedWalletBalance,
+        });
+
         return res.status(201).json({
             success: true,
             message: "Transaction created successfully.",
@@ -296,6 +340,14 @@ const createTransaction = async (
     } catch (error) {
         const statusCode =
             (error as Error & { statusCode?: number }).statusCode || 500;
+
+        logApiError(req, "Create transaction failed", error, {
+            statusCode,
+            walletId: validation.payload?.walletId,
+            amount: validation.payload?.amount,
+            transactionType: validation.payload?.type,
+            category: validation.payload?.category,
+        });
 
         return res.status(statusCode).json({
             success: false,
@@ -311,6 +363,7 @@ const createTransactionsBulk = async (
     const userId = String(req.user?.id || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Create bulk transactions request rejected: missing user");
         return res.status(401).json({
             success: false,
             message: "Unauthorized.",
@@ -319,6 +372,9 @@ const createTransactionsBulk = async (
 
     const validation = validateCreateTransactionsBulkPayload(req.body);
     if (!validation.isValid || !validation.payload) {
+        logApiWarn(req, "Create bulk transactions request rejected: validation failed", {
+            validationErrors: validation.errors,
+        });
         return res.status(400).json({
             success: false,
             message: "Validation failed.",
@@ -331,9 +387,16 @@ const createTransactionsBulk = async (
             userId,
             validation.payload,
             String(req.user?.username || "").trim() || undefined,
+            userId,
         );
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
+
+        logApiInfo(req, "Bulk transactions created", {
+            createdCount: result.transactions.length,
+            walletCount: walletSummary.wallets.length,
+            totalAmount: walletSummary.totalAmount,
+        });
 
         return res.status(201).json({
             success: true,
@@ -346,6 +409,11 @@ const createTransactionsBulk = async (
     } catch (error) {
         const statusCode =
             (error as Error & { statusCode?: number }).statusCode || 500;
+
+        logApiError(req, "Create bulk transactions failed", error, {
+            statusCode,
+            submittedCount: validation.payload?.length || 0,
+        });
 
         return res.status(statusCode).json({
             success: false,
@@ -362,6 +430,7 @@ const updateTransaction = async (
     const transactionId = String(req.params.transactionId || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Update transaction request rejected: missing user");
         return res.status(401).json({
             success: false,
             message: "Unauthorized.",
@@ -369,6 +438,7 @@ const updateTransaction = async (
     }
 
     if (!transactionId) {
+        logApiWarn(req, "Update transaction request rejected: missing transactionId");
         return res.status(400).json({
             success: false,
             message: "transactionId is required.",
@@ -377,6 +447,10 @@ const updateTransaction = async (
 
     const validation = validateUpdateTransactionPayload(req.body);
     if (!validation.isValid || !validation.payload) {
+        logApiWarn(req, "Update transaction request rejected: validation failed", {
+            transactionId,
+            validationErrors: validation.errors,
+        });
         return res.status(400).json({
             success: false,
             message: "Validation failed.",
@@ -390,6 +464,7 @@ const updateTransaction = async (
             transactionId,
             validation.payload,
             String(req.user?.username || "").trim() || undefined,
+            userId,
         );
         await notifySharedFundActivity({
             walletId: result.transaction.walletId,
@@ -403,6 +478,14 @@ const updateTransaction = async (
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
+        logApiInfo(req, "Transaction updated", {
+            transactionId: result.transaction.id,
+            walletId: result.transaction.walletId,
+            amount: result.transaction.amount,
+            transactionType: result.transaction.type,
+            affectedWalletIds: result.affectedWalletIds,
+        });
+
         return res.json({
             success: true,
             message: "Transaction updated successfully.",
@@ -414,6 +497,14 @@ const updateTransaction = async (
     } catch (error) {
         const statusCode =
             (error as Error & { statusCode?: number }).statusCode || 500;
+
+        logApiError(req, "Update transaction failed", error, {
+            statusCode,
+            transactionId,
+            walletId: validation.payload?.walletId,
+            amount: validation.payload?.amount,
+            transactionType: validation.payload?.type,
+        });
 
         return res.status(statusCode).json({
             success: false,
@@ -430,6 +521,7 @@ const removeTransaction = async (
     const transactionId = String(req.params.transactionId || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Delete transaction request rejected: missing user");
         return res.status(401).json({
             success: false,
             message: "Unauthorized.",
@@ -437,6 +529,7 @@ const removeTransaction = async (
     }
 
     if (!transactionId) {
+        logApiWarn(req, "Delete transaction request rejected: missing transactionId");
         return res.status(400).json({
             success: false,
             message: "transactionId is required.",
@@ -444,7 +537,7 @@ const removeTransaction = async (
     }
 
     try {
-        const result = await deleteTransactionForUser(userId, transactionId);
+        const result = await deleteTransactionForUser(userId, transactionId, userId);
         await notifySharedFundActivity({
             walletId: result.walletId,
             actorId: userId,
@@ -453,6 +546,12 @@ const removeTransaction = async (
         });
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
+
+        logApiInfo(req, "Transaction deleted", {
+            transactionId: result.deletedTransactionId,
+            walletId: result.walletId,
+            updatedWalletBalance: result.updatedWalletBalance,
+        });
 
         return res.json({
             success: true,
@@ -465,6 +564,11 @@ const removeTransaction = async (
     } catch (error) {
         const statusCode =
             (error as Error & { statusCode?: number }).statusCode || 500;
+
+        logApiError(req, "Delete transaction failed", error, {
+            statusCode,
+            transactionId,
+        });
 
         return res.status(statusCode).json({
             success: false,
@@ -480,12 +584,17 @@ const getSavingsRate = async (
     const userId = String(req.user?.id || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Get savings rate request rejected: missing user");
         return res.status(401).json({ success: false, message: "Unauthorized." });
     }
 
     const { month, year, error } = parseMonthYear(req.query.month, req.query.year);
 
     if (error) {
+        logApiWarn(req, "Get savings rate request rejected: invalid month/year", {
+            month: req.query.month,
+            year: req.query.year,
+        });
         return res.status(400).json({ success: false, message: error });
     }
 
@@ -497,6 +606,9 @@ const getSavingsRate = async (
         querySavingsGoal !== undefined &&
         (!Number.isFinite(querySavingsGoal) || querySavingsGoal < 0)
     ) {
+        logApiWarn(req, "Get savings rate request rejected: invalid savingsGoal", {
+            savingsGoal: savingsGoalRaw,
+        });
         return res.status(400).json({
             success: false,
             message: "savingsGoal must be a non-negative number.",
@@ -515,9 +627,23 @@ const getSavingsRate = async (
                       },
                   );
 
+        logApiInfo(req, "Savings rate loaded", {
+            month,
+            year,
+            usedQuerySavingsGoal: querySavingsGoal !== undefined,
+            savingsGoal: result.savingsGoal,
+            savingsRate: result.savingsRate,
+        });
+
         return res.json({ success: true, data: result });
     } catch (err) {
         const statusCode = (err as Error & { statusCode?: number }).statusCode || 500;
+        logApiError(req, "Get savings rate failed", err, {
+            statusCode,
+            month,
+            year,
+            savingsGoal: querySavingsGoal,
+        });
         return res.status(statusCode).json({
             success: false,
             message: (err as Error).message,
@@ -532,19 +658,35 @@ const getSpendingTrend = async (
     const userId = String(req.user?.id || "").trim();
 
     if (!userId) {
+        logApiWarn(req, "Get spending trend request rejected: missing user");
         return res.status(401).json({ success: false, message: "Unauthorized." });
     }
 
     const { month, year, error } = parseMonthYear(req.query.month, req.query.year);
 
     if (error) {
+        logApiWarn(req, "Get spending trend request rejected: invalid month/year", {
+            month: req.query.month,
+            year: req.query.year,
+        });
         return res.status(400).json({ success: false, message: error });
     }
 
     try {
         const trend = await getMonthlySpendingTrendForUser(userId, month, year);
+        logApiInfo(req, "Spending trend loaded", {
+            month,
+            year,
+            pointCount: trend.points.length,
+            totalIncome: trend.totalIncome,
+            savingsGoal: trend.savingsGoal,
+        });
         return res.json({ success: true, data: trend });
     } catch (error) {
+        logApiError(req, "Get spending trend failed", error, {
+            month,
+            year,
+        });
         return res.status(500).json({
             success: false,
             message: (error as Error).message || "Failed to load spending trend.",

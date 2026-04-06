@@ -184,6 +184,29 @@ const setWalletActive = async (
     return mapRow(updatedWallet, userId);
 };
 
+const updateWalletName = async (
+    userId: string,
+    walletId: string,
+    name: string,
+    executor?: DbExecutor,
+): Promise<IWallet | undefined> => {
+    const wallet = await getWalletById(userId, walletId, executor);
+    if (!wallet) {
+        return undefined;
+    }
+
+    const db = getExecutor(executor);
+    const updatedWallet = await db.wallet.update({
+        where: { id: walletId },
+        data: {
+            name,
+            updatedAt: BigInt(Date.now()),
+        },
+    });
+
+    return mapRow(updatedWallet, userId);
+};
+
 const reorderWallet = async (
     userId: string,
     walletId: string,
@@ -250,6 +273,7 @@ export {
     getWalletById,
     findWalletByUserAndName,
     updateWalletBalance,
+    updateWalletName,
     setWalletActive,
     upsertWallet,
     upsertWalletsBulk,
@@ -264,6 +288,7 @@ const mapWalletLogRow = (row: {
     id: string;
     walletId: string;
     transactionId: string | null;
+    createdBy?: string | null;
     actorDisplayName?: string | null;
     actorUsername?: string | null;
     action: string;
@@ -276,6 +301,7 @@ const mapWalletLogRow = (row: {
     id: String(row.id),
     walletId: String(row.walletId),
     transactionId: row.transactionId ?? undefined,
+    createdBy: row.createdBy ?? undefined,
     actorDisplayName: row.actorDisplayName ?? undefined,
     actorUsername: row.actorUsername ?? undefined,
     action: String(row.action),
@@ -295,6 +321,7 @@ const createWalletLog = async (
         data: {
             walletId: data.walletId,
             transactionId: data.transactionId ?? null,
+            createdBy: data.createdBy ?? null,
             action: data.action,
             amount: data.amount,
             balanceBefore: data.balanceBefore,
@@ -374,13 +401,31 @@ const getWalletLogsByWalletId = async (
         return acc;
     }, {});
 
-    const uniqueUserIds = Array.from(new Set(transactions.map((t) => t.userId).filter(Boolean)));
+    const createdByUserIds = rows
+        .map((row) => row.createdBy)
+        .filter((value): value is string => Boolean(value));
+
+    const uniqueUserIds = Array.from(
+        new Set(
+            [
+                ...transactions.map((t) => t.userId),
+                ...createdByUserIds,
+            ].filter(Boolean),
+        ),
+    );
+
     const users = uniqueUserIds.length > 0
         ? await prisma.user.findMany({
             where: { id: { in: uniqueUserIds } },
-            select: { id: true, username: true },
+            select: { id: true, username: true, displayName: true },
         })
         : [];
+
+    const userDisplayNameMap = users.reduce<Record<string, string>>((acc, u) => {
+        acc[u.id] = (u.displayName || "").trim() || u.username;
+        return acc;
+    }, {});
+
     const userUsernameMap = users.reduce<Record<string, string>>((acc, u) => {
         acc[u.id] = u.username;
         return acc;
@@ -388,11 +433,20 @@ const getWalletLogsByWalletId = async (
 
     return {
         items: rows.map((row) => {
+            const actorId = row.createdBy || undefined;
             const actorUserId = row.transactionId ? actorUserIdMap[row.transactionId] : undefined;
             return mapWalletLogRow({
                 ...row,
-                actorDisplayName: row.transactionId ? actorNameMap[row.transactionId] : undefined,
-                actorUsername: actorUserId ? userUsernameMap[actorUserId] : undefined,
+                actorDisplayName: actorId
+                    ? userDisplayNameMap[actorId]
+                    : row.transactionId
+                      ? actorNameMap[row.transactionId]
+                      : undefined,
+                actorUsername: actorId
+                    ? userUsernameMap[actorId]
+                    : actorUserId
+                      ? userUsernameMap[actorUserId]
+                      : undefined,
             });
         }),
         page,

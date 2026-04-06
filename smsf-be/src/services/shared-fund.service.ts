@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma, withTransaction } from "../lib/prisma";
+import { WALLET_LOG_ACTION } from "../constants/wallet-log-actions";
 import { createWalletForUser } from "./wallet.service";
 
 export interface ISharedFundInviteItem {
@@ -224,7 +225,7 @@ export async function createSharedFundWalletForUser(userId: string, payload: { n
             data: [
                 {
                     walletId: sourceWalletId,
-                    action: "transfer-out",
+                    action: WALLET_LOG_ACTION.TRANSFER_OUT,
                     amount: initialBalance,
                     balanceBefore: sourceBalance,
                     balanceAfter: sourceAfter,
@@ -233,7 +234,7 @@ export async function createSharedFundWalletForUser(userId: string, payload: { n
                 },
                 {
                     walletId,
-                    action: "transfer-in",
+                    action: WALLET_LOG_ACTION.TRANSFER_IN,
                     amount: initialBalance,
                     balanceBefore: 0,
                     balanceAfter: initialBalance,
@@ -842,7 +843,7 @@ export async function withdrawSharedFundToWallet(userId: string, payload: {
             data: [
                 {
                     walletId,
-                    action: "transfer-out",
+                    action: WALLET_LOG_ACTION.TRANSFER_OUT,
                     amount,
                     balanceBefore: sourceBalance,
                     balanceAfter: sourceAfter,
@@ -851,7 +852,7 @@ export async function withdrawSharedFundToWallet(userId: string, payload: {
                 },
                 {
                     walletId: targetWalletId,
-                    action: "transfer-in",
+                    action: WALLET_LOG_ACTION.TRANSFER_IN,
                     amount,
                     balanceBefore: targetBalance,
                     balanceAfter: targetAfter,

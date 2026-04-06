@@ -13,7 +13,14 @@ import { AvatarCropModal } from '@/features/profile/components/avatar-crop-modal
 import { AvatarPreviewModal } from '@/features/profile/components/avatar-preview-modal';
 import { SharedFundCard } from '@/features/profile/components/shared-fund-card';
 import { formatCurrencyVND } from '@/lib/formatters';
-import { getWalletLogsRequest, IWalletLogItem, IWalletLogPage } from '@/lib/calendar/api';
+import { getWalletTypeLabel } from '@/lib/wallet-type-label';
+import {
+    getWalletLogsRequest,
+    IWalletLogItem,
+    IWalletLogPage,
+    transferWalletBalanceRequest,
+    updateWalletBalanceRequest,
+} from '@/lib/calendar/api';
 import { getWalletLogLabel, isWalletLogCredit } from '@/lib/wallet-log-label';
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
@@ -23,7 +30,22 @@ export function ProfileShell() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const { user, wallets, totalWalletBalance, isAuthenticated, isLoading, logout, updateTelegramChatId, refreshProfile, createWallet, updateWalletActive, dragReorderWallets, uploadAvatar } = useAuth();
+    const {
+        user,
+        wallets,
+        totalWalletBalance,
+        isAuthenticated,
+        isLoading,
+        logout,
+        updateTelegramChatId,
+        refreshProfile,
+        refreshWallets,
+        createWallet,
+        updateWalletActive,
+        updateWalletName,
+        dragReorderWallets,
+        uploadAvatar,
+    } = useAuth();
 
     const [displayName, setDisplayName] = useState('');
     const [telegramChatId, setTelegramChatId] = useState('');
@@ -36,14 +58,28 @@ export function ProfileShell() {
     const [walletErrorMessage, setWalletErrorMessage] = useState('');
     const [walletSuccessMessage, setWalletSuccessMessage] = useState('');
     const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+    const [transferFromWalletId, setTransferFromWalletId] = useState('');
+    const [transferToWalletId, setTransferToWalletId] = useState('');
+    const [transferAmount, setTransferAmount] = useState('');
+    const [transferDescription, setTransferDescription] = useState('');
+    const [isTransferringWallet, setIsTransferringWallet] = useState(false);
+    const [balanceTargetWalletId, setBalanceTargetWalletId] = useState('');
+    const [balanceValue, setBalanceValue] = useState('');
+    const [balanceDescription, setBalanceDescription] = useState('');
+    const [isUpdatingWalletBalance, setIsUpdatingWalletBalance] = useState(false);
+    const [renameTargetWalletId, setRenameTargetWalletId] = useState('');
+    const [renameWalletValue, setRenameWalletValue] = useState('');
+    const [isUpdatingWalletName, setIsUpdatingWalletName] = useState(false);
+    const [openWalletFeatureKey, setOpenWalletFeatureKey] = useState<string | null>(null);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
     const [cropImageUrl, setCropImageUrl] = useState('');
     const [isAvatarUploading, setIsAvatarUploading] = useState(false);
 
     const [togglingWalletId, setTogglingWalletId] = useState<string | null>(null);
-        const [draggingWalletIndex, setDraggingWalletIndex] = useState<number | null>(null);
-        const [dragOverWalletIndex, setDragOverWalletIndex] = useState<number | null>(null);
+    const [draggingWalletIndex, setDraggingWalletIndex] = useState<number | null>(null);
+    const [dragOverWalletIndex, setDragOverWalletIndex] = useState<number | null>(null);
+    const suppressWalletExpandRef = useRef(false);
     const { isVisible: isBalanceVisible, toggle: toggleBalance } = useBalanceVisible();
 
     const [expandedWalletId, setExpandedWalletId] = useState<string | null>(null);
@@ -66,6 +102,11 @@ export function ProfileShell() {
     }, []);
 
     const handleToggleWalletHistory = useCallback((walletId: string) => {
+        if (suppressWalletExpandRef.current) {
+            suppressWalletExpandRef.current = false;
+            return;
+        }
+
         if (expandedWalletId === walletId) {
             setExpandedWalletId(null);
             return;
@@ -98,6 +139,64 @@ export function ProfileShell() {
 
     const hasTelegramId = useMemo(() => Boolean((user?.telegramChatId || '').trim()), [user?.telegramChatId]);
 
+    const personalWallets = useMemo(
+        () => wallets.filter((wallet) => wallet.type !== 'shared-fund'),
+        [wallets],
+    );
+
+    const activeWallets = useMemo(
+        () => personalWallets.filter((wallet) => wallet.isActive !== false),
+        [personalWallets],
+    );
+
+    useEffect(() => {
+        if (activeWallets.length === 0) {
+            setTransferFromWalletId('');
+            setTransferToWalletId('');
+            setBalanceTargetWalletId('');
+            setRenameTargetWalletId('');
+            return;
+        }
+
+        setTransferFromWalletId((current) => {
+            if (current && activeWallets.some((wallet) => wallet.id === current)) {
+                return current;
+            }
+            return activeWallets[0]?.id || '';
+        });
+
+        setTransferToWalletId((current) => {
+            if (current && activeWallets.some((wallet) => wallet.id === current)) {
+                return current;
+            }
+            const fallback = activeWallets.find((wallet) => wallet.id !== transferFromWalletId);
+            return fallback?.id || activeWallets[0]?.id || '';
+        });
+
+        setBalanceTargetWalletId((current) => {
+            if (current && activeWallets.some((wallet) => wallet.id === current)) {
+                return current;
+            }
+            return activeWallets[0]?.id || '';
+        });
+
+        setRenameTargetWalletId((current) => {
+            if (current && personalWallets.some((wallet) => wallet.id === current)) {
+                return current;
+            }
+            return personalWallets[0]?.id || activeWallets[0]?.id || '';
+        });
+    }, [activeWallets, personalWallets, transferFromWalletId]);
+
+    useEffect(() => {
+        const currentWallet = personalWallets.find((wallet) => wallet.id === renameTargetWalletId);
+        setRenameWalletValue(currentWallet?.name || '');
+    }, [renameTargetWalletId, personalWallets]);
+
+    const toggleWalletFeature = useCallback((featureKey: string) => {
+        setOpenWalletFeatureKey((current) => (current === featureKey ? null : featureKey));
+    }, []);
+
     const handleToggleWalletActive = useCallback(async (walletId: string, current: boolean) => {
         setTogglingWalletId(walletId);
         try {
@@ -108,6 +207,7 @@ export function ProfileShell() {
     }, [updateWalletActive]);
 
     const handleWalletDragStart = useCallback((walletIndex: number) => {
+        suppressWalletExpandRef.current = true;
         setDraggingWalletIndex(walletIndex);
     }, []);
 
@@ -122,12 +222,17 @@ export function ProfileShell() {
             return;
         }
 
-        await dragReorderWallets(draggingWalletIndex, targetIndex);
+        await dragReorderWallets(
+            draggingWalletIndex,
+            targetIndex,
+            personalWallets.map((wallet) => wallet.id),
+        );
         setDraggingWalletIndex(null);
         setDragOverWalletIndex(null);
-    }, [dragReorderWallets, draggingWalletIndex]);
+    }, [dragReorderWallets, draggingWalletIndex, personalWallets]);
 
     const handleWalletDragEnd = useCallback(() => {
+        suppressWalletExpandRef.current = true;
         setDraggingWalletIndex(null);
         setDragOverWalletIndex(null);
     }, []);
@@ -269,6 +374,129 @@ export function ProfileShell() {
             setWalletErrorMessage(responseMessage);
         } finally {
             setIsCreatingWallet(false);
+        }
+    };
+
+    const handleTransferWalletBalance = async () => {
+        const amountValue = Number(transferAmount.replace(/\D/g, '') || 0);
+
+        setWalletErrorMessage('');
+        setWalletSuccessMessage('');
+
+        if (!transferFromWalletId || !transferToWalletId) {
+            setWalletErrorMessage('Vui lòng chọn đủ ví nguồn và ví nhận.');
+            return;
+        }
+
+        if (transferFromWalletId === transferToWalletId) {
+            setWalletErrorMessage('Ví nguồn và ví nhận phải khác nhau.');
+            return;
+        }
+
+        if (!Number.isFinite(amountValue) || amountValue <= 0) {
+            setWalletErrorMessage('Số tiền chuyển phải lớn hơn 0.');
+            return;
+        }
+
+        setIsTransferringWallet(true);
+        try {
+            await transferWalletBalanceRequest({
+                fromWalletId: transferFromWalletId,
+                toWalletId: transferToWalletId,
+                amount: amountValue,
+                description: transferDescription.trim() || undefined,
+            });
+            setTransferAmount('');
+            setTransferDescription('');
+            await refreshWallets();
+            setWalletSuccessMessage('Đã chuyển tiền giữa các ví thành công.');
+            if (expandedWalletId) {
+                void handleLoadWalletLogs(expandedWalletId);
+            }
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Chuyển tiền giữa ví thất bại.';
+            setWalletErrorMessage(responseMessage);
+        } finally {
+            setIsTransferringWallet(false);
+        }
+    };
+
+    const handleUpdateWalletBalance = async () => {
+        const nextBalance = Number(balanceValue.replace(/\D/g, '') || 0);
+
+        setWalletErrorMessage('');
+        setWalletSuccessMessage('');
+
+        if (!balanceTargetWalletId) {
+            setWalletErrorMessage('Vui lòng chọn ví cần cập nhật số dư.');
+            return;
+        }
+
+        if (!Number.isFinite(nextBalance) || nextBalance < 0) {
+            setWalletErrorMessage('Số dư phải là số không âm.');
+            return;
+        }
+
+        setIsUpdatingWalletBalance(true);
+        try {
+            await updateWalletBalanceRequest(balanceTargetWalletId, {
+                balance: nextBalance,
+                description: balanceDescription.trim() || undefined,
+            });
+            setBalanceValue('');
+            setBalanceDescription('');
+            await refreshWallets();
+            setWalletSuccessMessage('Đã cập nhật số dư ví thành công.');
+            if (expandedWalletId) {
+                void handleLoadWalletLogs(expandedWalletId);
+            }
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Cập nhật số dư ví thất bại.';
+            setWalletErrorMessage(responseMessage);
+        } finally {
+            setIsUpdatingWalletBalance(false);
+        }
+    };
+
+    const handleUpdateWalletName = async () => {
+        const trimmedName = renameWalletValue.trim();
+
+        setWalletErrorMessage('');
+        setWalletSuccessMessage('');
+
+        if (!renameTargetWalletId) {
+            setWalletErrorMessage('Vui lòng chọn ví cần đổi tên.');
+            return;
+        }
+
+        if (!trimmedName) {
+            setWalletErrorMessage('Vui lòng nhập tên ví mới.');
+            return;
+        }
+
+        if (trimmedName.length > 40) {
+            setWalletErrorMessage('Tên ví tối đa 40 ký tự.');
+            return;
+        }
+
+        setIsUpdatingWalletName(true);
+        try {
+            await updateWalletName(renameTargetWalletId, trimmedName);
+            setWalletSuccessMessage('Đã cập nhật tên ví thành công.');
+            if (expandedWalletId) {
+                void handleLoadWalletLogs(expandedWalletId);
+            }
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Cập nhật tên ví thất bại.';
+            setWalletErrorMessage(responseMessage);
+        } finally {
+            setIsUpdatingWalletName(false);
         }
     };
 
@@ -550,74 +778,96 @@ export function ProfileShell() {
                         </div>
                     </div>
 
-                    <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '10px 12px', display: 'grid', gap: 8 }}>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Thêm ví mới</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
-                            <input
-                                type="text"
-                                value={walletName}
-                                onChange={(event) => setWalletName(event.target.value)}
-                                placeholder="Tên ví"
-                                style={{
-                                    width: '100%',
-                                    borderRadius: 10,
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'var(--surface-strong)',
-                                    color: 'var(--foreground)',
-                                    minHeight: 40,
-                                    padding: '0 10px',
-                                    fontSize: 13.5,
-                                }}
-                            />
-                            <CustomSelect
-                                value={walletType}
-                                onChange={setWalletType}
-                                options={[
-                                    { value: 'custom', label: 'Tuỳ chọn' },
-                                    { value: 'cash', label: 'Tiền mặt' },
-                                    { value: 'bank', label: 'Ngân hàng' },
-                                    { value: 'momo', label: 'Momo' },
-                                ]}
-                                placeholder="Loại ví"
-                            />
-                        </div>
+                    {[
+                        { key: 'create', title: 'Thêm ví mới' },
+                        { key: 'transfer', title: 'Chuyển tiền giữa các ví' },
+                        { key: 'rename', title: 'Cập nhật tên ví' },
+                        { key: 'balance', title: 'Cập nhật số dư ví' },
+                    ].map((section) => {
+                        const isOpen = openWalletFeatureKey === section.key;
+                        return (
+                            <div key={section.key} style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', overflow: 'hidden' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleWalletFeature(section.key)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 14px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 8,
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: 'var(--foreground)',
+                                        textAlign: 'left',
+                                    }}
+                                >
+                                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{section.title}</span>
+                                    {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </button>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={walletBalance ? new Intl.NumberFormat('vi-VN').format(Number(walletBalance.replace(/\D/g, '') || 0)) : ''}
-                                onChange={(event) => setWalletBalance(event.target.value.replace(/\D/g, ''))}
-                                placeholder="Số dư ban đầu"
-                                style={{
-                                    width: '100%',
-                                    borderRadius: 10,
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'var(--surface-strong)',
-                                    color: 'var(--foreground)',
-                                    minHeight: 40,
-                                    padding: '0 10px',
-                                    fontSize: 13.5,
-                                }}
-                            />
-                            <PrimaryButton onClick={handleCreateWallet} disabled={isCreatingWallet} style={{ justifyContent: 'center' }}>
-                                {isCreatingWallet ? 'Đang thêm...' : 'Thêm ví'}
-                            </PrimaryButton>
-                        </div>
+                                {isOpen ? (
+                                    <div style={{ borderTop: '1px solid var(--surface-border)', padding: '10px 12px', display: 'grid', gap: 8 }}>
+                                        {section.key === 'create' ? (
+                                            <>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
+                                                    <input type="text" value={walletName} onChange={(event) => setWalletName(event.target.value)} placeholder="Tên ví" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                                    <CustomSelect value={walletType} onChange={setWalletType} options={[{ value: 'custom', label: 'Tuỳ chọn' }, { value: 'cash', label: 'Tiền mặt' }, { value: 'bank', label: 'Ngân hàng' }, { value: 'momo', label: 'Momo' }]} placeholder="Loại ví" />
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
+                                                    <input type="text" inputMode="numeric" value={walletBalance ? new Intl.NumberFormat('vi-VN').format(Number(walletBalance.replace(/\D/g, '') || 0)) : ''} onChange={(event) => setWalletBalance(event.target.value.replace(/\D/g, ''))} placeholder="Số dư ban đầu" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                                    <PrimaryButton onClick={handleCreateWallet} disabled={isCreatingWallet} style={{ justifyContent: 'center' }}>{isCreatingWallet ? 'Đang thêm...' : 'Thêm ví'}</PrimaryButton>
+                                                </div>
+                                            </>
+                                        ) : null}
 
-                        {walletErrorMessage ? (
-                            <div style={{ color: '#ef4444', fontSize: 12 }}>{walletErrorMessage}</div>
-                        ) : null}
-                        {walletSuccessMessage ? (
-                            <div style={{ color: '#16a34a', fontSize: 12 }}>{walletSuccessMessage}</div>
-                        ) : null}
-                    </div>
+                                        {section.key === 'transfer' ? (
+                                            <>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                                    <CustomSelect value={transferFromWalletId} onChange={setTransferFromWalletId} options={activeWallets.map((wallet) => ({ value: wallet.id, label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}` }))} placeholder="Ví nguồn" />
+                                                    <CustomSelect value={transferToWalletId} onChange={setTransferToWalletId} options={activeWallets.filter((wallet) => wallet.id !== transferFromWalletId).map((wallet) => ({ value: wallet.id, label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}` }))} placeholder="Ví nhận" />
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 8 }}>
+                                                    <input type="text" inputMode="numeric" value={transferAmount ? new Intl.NumberFormat('vi-VN').format(Number(transferAmount.replace(/\D/g, '') || 0)) : ''} onChange={(event) => setTransferAmount(event.target.value.replace(/\D/g, ''))} placeholder="Số tiền cần chuyển" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                                    <PrimaryButton onClick={handleTransferWalletBalance} disabled={isTransferringWallet || activeWallets.length < 2} style={{ justifyContent: 'center' }}>{isTransferringWallet ? 'Đang chuyển...' : 'Chuyển tiền'}</PrimaryButton>
+                                                </div>
+                                                <input type="text" value={transferDescription} onChange={(event) => setTransferDescription(event.target.value)} placeholder="Mô tả chuyển tiền" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                            </>
+                                        ) : null}
 
-                    {wallets.length === 0 ? (
+                                        {section.key === 'rename' ? (
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr', gap: 8 }}>
+                                                <CustomSelect value={renameTargetWalletId} onChange={setRenameTargetWalletId} options={personalWallets.map((wallet) => ({ value: wallet.id, label: wallet.name }))} placeholder="Chọn ví" />
+                                                <input type="text" value={renameWalletValue} onChange={(event) => setRenameWalletValue(event.target.value)} placeholder="Tên ví mới" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                                <PrimaryButton onClick={handleUpdateWalletName} disabled={isUpdatingWalletName || personalWallets.length === 0} style={{ justifyContent: 'center' }}>{isUpdatingWalletName ? 'Đang đổi tên...' : 'Đổi tên'}</PrimaryButton>
+                                            </div>
+                                        ) : null}
+
+                                        {section.key === 'balance' ? (
+                                            <div style={{ display: 'grid', gap: 8 }}>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr', gap: 8 }}>
+                                                    <CustomSelect value={balanceTargetWalletId} onChange={setBalanceTargetWalletId} options={activeWallets.map((wallet) => ({ value: wallet.id, label: wallet.name }))} placeholder="Chọn ví" />
+                                                    <input type="text" inputMode="numeric" value={balanceValue ? new Intl.NumberFormat('vi-VN').format(Number(balanceValue.replace(/\D/g, '') || 0)) : ''} onChange={(event) => setBalanceValue(event.target.value.replace(/\D/g, ''))} placeholder="Số dư mới" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                                    <PrimaryButton onClick={handleUpdateWalletBalance} disabled={isUpdatingWalletBalance || activeWallets.length === 0} style={{ justifyContent: 'center' }}>{isUpdatingWalletBalance ? 'Đang cập nhật...' : 'Cập nhật'}</PrimaryButton>
+                                                </div>
+                                                <input type="text" value={balanceDescription} onChange={(event) => setBalanceDescription(event.target.value)} placeholder="Mô tả cập nhật số dư" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--surface-border)', background: 'var(--surface-strong)', color: 'var(--foreground)', minHeight: 40, padding: '0 10px', fontSize: 13.5 }} />
+                                            </div>
+                                        ) : null}
+
+                                        {walletErrorMessage ? <div style={{ color: '#ef4444', fontSize: 12 }}>{walletErrorMessage}</div> : null}
+                                        {walletSuccessMessage ? <div style={{ color: '#16a34a', fontSize: 12 }}>{walletSuccessMessage}</div> : null}
+                                    </div>
+                                ) : null}
+                            </div>
+                        );
+                    })}
+
+                    {personalWallets.length === 0 ? (
                         <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có ví nào.</div>
                     ) : (
                         <div style={{ display: 'grid', gap: 8 }}>
-                            {wallets.map((wallet, walletIndex) => {
+                            {personalWallets.map((wallet, walletIndex) => {
                                 const isExpanded = expandedWalletId === wallet.id;
                                 const logs = walletLogsMap[wallet.id];
                                 const isLoadingLogs = isLoadingLogsFor === wallet.id;
@@ -677,6 +927,7 @@ export function ProfileShell() {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <span
                                                 title="Kéo để sắp xếp"
+                                                onPointerDown={(event) => event.stopPropagation()}
                                                 onClick={(event) => event.stopPropagation()}
                                                 style={{
                                                     width: 24,
@@ -694,8 +945,8 @@ export function ProfileShell() {
                                             </span>
                                             <div>
                                                 <div style={{ fontWeight: 700, fontSize: 13.5 }}>{wallet.name}</div>
-                                                <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    {wallet.type}
+                                                <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {getWalletTypeLabel(wallet.type)}
                                                     {wallet.isActive === false && (
                                                         <span style={{ color: '#ef4444', fontWeight: 700, textTransform: 'none' }}>· Không dùng</span>
                                                     )}
@@ -727,6 +978,7 @@ export function ProfileShell() {
                                             <button
                                                 type="button"
                                                 disabled={togglingWalletId === wallet.id}
+                                                onPointerDown={(event) => event.stopPropagation()}
                                                 onClick={(event) => {
                                                     event.stopPropagation();
                                                     void handleToggleWalletActive(wallet.id, wallet.isActive !== false);
@@ -821,11 +1073,6 @@ export function ProfileShell() {
                                                                         : '••••• → •••••'}
                                                                     {log.description ? <span> · {log.description}</span> : null}
                                                                 </div>
-                                                                {log.actorDisplayName ? (
-                                                                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                                                                        Thực hiện bởi <span style={{ color: 'var(--foreground)', fontWeight: 700 }}>{log.actorDisplayName}</span>
-                                                                    </div>
-                                                                ) : null}
                                                             </div>
                                                         );
                                                     })}

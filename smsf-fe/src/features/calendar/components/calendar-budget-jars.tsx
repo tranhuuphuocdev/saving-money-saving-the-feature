@@ -49,9 +49,17 @@ export function CalendarBudgetJars({
     const [setupItems, setSetupItems] = useState<TSetupJarItem[]>([]);
     const [pickerBudgetIndex, setPickerBudgetIndex] = useState<number | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isClearingAllJars, setIsClearingAllJars] = useState(false);
+    const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
+    const [deleteSetupItemIndex, setDeleteSetupItemIndex] = useState<number | null>(null);
     const [isMounted, setIsMounted] = useState(false);
 
-    useLockBodyScroll(isOpenSetup || pickerBudgetIndex !== null);
+    useLockBodyScroll(
+        isOpenSetup
+        || pickerBudgetIndex !== null
+        || isClearAllConfirmOpen
+        || deleteSetupItemIndex !== null,
+    );
 
     useEffect(() => {
         setIsMounted(true);
@@ -99,6 +107,20 @@ export function CalendarBudgetJars({
 
             return right.progressPercent - left.progressPercent;
         });
+    }, [jars]);
+
+    const jarSummary = useMemo(() => {
+        return jars.reduce(
+            (summary, jar) => {
+                summary.totalTargetAmount += jar.targetAmount;
+                summary.totalSpentAmount += jar.spentAmount;
+                return summary;
+            },
+            {
+                totalTargetAmount: 0,
+                totalSpentAmount: 0,
+            },
+        );
     }, [jars]);
 
     const activePreset = useMemo(() => {
@@ -210,6 +232,34 @@ export function CalendarBudgetJars({
         }
     }
 
+    async function handleClearAllJars() {
+        setIsClearingAllJars(true);
+        try {
+            await setupBudgetJarsRequest({
+                month,
+                year,
+                jars: [],
+            });
+            await onJarsChanged();
+            setIsOpenSetup(false);
+        } finally {
+            setIsClearingAllJars(false);
+        }
+    }
+
+    function handleRequestDeleteSetupItem(index: number) {
+        setDeleteSetupItemIndex(index);
+    }
+
+    function handleConfirmDeleteSetupItem() {
+        if (deleteSetupItemIndex === null) {
+            return;
+        }
+
+        setSetupItems((prev) => prev.filter((_, currentIndex) => currentIndex !== deleteSetupItemIndex));
+        setDeleteSetupItemIndex(null);
+    }
+
     return (
         <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
             <AppCard style={{ padding: 12, display: 'grid', gap: 10 }}>
@@ -239,6 +289,37 @@ export function CalendarBudgetJars({
                         <SlidersHorizontal size={13} /> Thiết lập hũ
                     </button>
                 </div>
+
+                {jars.length > 0 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                        <div
+                            style={{
+                                borderRadius: 10,
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-soft)',
+                                padding: '8px 10px',
+                            }}
+                        >
+                            <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>Tổng tiền đã tiêu</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 900, marginTop: 2 }}>
+                                {formatCurrencyVND(jarSummary.totalSpentAmount)}
+                            </div>
+                        </div>
+                        <div
+                            style={{
+                                borderRadius: 10,
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-soft)',
+                                padding: '8px 10px',
+                            }}
+                        >
+                            <div style={{ color: 'var(--muted)', fontSize: 10.5 }}>Tổng tiền hũ</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 900, marginTop: 2 }}>
+                                {formatCurrencyVND(jarSummary.totalTargetAmount)}
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
 
                 {jars.length === 0 ? (
                     <div
@@ -542,9 +623,7 @@ export function CalendarBudgetJars({
                                                       <div style={{ color: 'var(--muted)', fontSize: 10.5, whiteSpace: 'nowrap' }}>{item.targetPercent.toFixed(0)}%</div>
                                                       <button
                                                           type="button"
-                                                          onClick={() => {
-                                                              setSetupItems((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
-                                                          }}
+                                                          onClick={() => handleRequestDeleteSetupItem(index)}
                                                           style={{
                                                               width: 26,
                                                               height: 26,
@@ -670,7 +749,7 @@ export function CalendarBudgetJars({
                                       borderTop: '1px solid var(--surface-border)',
                                       paddingTop: 10,
                                       display: 'grid',
-                                      gridTemplateColumns: '1fr auto auto',
+                                      gridTemplateColumns: '1fr auto auto auto',
                                       alignItems: 'center',
                                       gap: 8,
                                   }}
@@ -697,6 +776,23 @@ export function CalendarBudgetJars({
 
                                   <button
                                       type="button"
+                                      onClick={() => setIsClearAllConfirmOpen(true)}
+                                      disabled={isSubmitting || isClearingAllJars}
+                                      style={{
+                                          borderRadius: 12,
+                                          border: '1px solid rgba(239, 68, 68, 0.45)',
+                                          background: 'rgba(239, 68, 68, 0.08)',
+                                          color: '#ef4444',
+                                          fontWeight: 700,
+                                          padding: '9px 12px',
+                                          opacity: isSubmitting || isClearingAllJars ? 0.6 : 1,
+                                      }}
+                                  >
+                                      {isClearingAllJars ? 'Đang xóa...' : 'Xóa toàn bộ hũ'}
+                                  </button>
+
+                                  <button
+                                      type="button"
                                       onClick={() => setIsOpenSetup(false)}
                                       style={{
                                           borderRadius: 12,
@@ -711,9 +807,9 @@ export function CalendarBudgetJars({
                                   </button>
                                   <PrimaryButton
                                       onClick={() => void handleSubmitSetup()}
-                                      disabled={isSubmitting || setupItems.length === 0}
+                                      disabled={isSubmitting || isClearingAllJars || setupItems.length === 0}
                                       style={{
-                                          opacity: isSubmitting || setupItems.length === 0 ? 0.6 : 1,
+                                          opacity: isSubmitting || isClearingAllJars || setupItems.length === 0 ? 0.6 : 1,
                                           padding: '9px 12px',
                                           borderRadius: 12,
                                       }}
@@ -721,6 +817,137 @@ export function CalendarBudgetJars({
                                       <CircleDollarSign size={14} />
                                       {isSubmitting ? 'Đang lưu...' : 'Lưu thiết lập hũ'}
                                   </PrimaryButton>
+                              </div>
+                          </AppCard>
+                      </div>,
+                      document.body,
+                  )
+                : null}
+
+            {isMounted && isClearAllConfirmOpen
+                ? createPortal(
+                      <div
+                          style={{
+                              position: 'fixed',
+                              inset: 0,
+                              zIndex: 90,
+                              background: 'rgba(2, 6, 23, 0.56)',
+                              backdropFilter: 'blur(2px)',
+                              display: 'grid',
+                              placeItems: 'center',
+                              padding: 10,
+                          }}
+                      >
+                          <AppCard
+                              strong
+                              style={{
+                                  width: 'min(100%, 420px)',
+                                  borderRadius: 14,
+                                  padding: 14,
+                                  display: 'grid',
+                                  gap: 10,
+                              }}
+                          >
+                              <div style={{ fontSize: 15, fontWeight: 900 }}>Xóa toàn bộ hũ?</div>
+                              <div style={{ color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.6 }}>
+                                  Hành động này sẽ xóa toàn bộ thiết lập hũ của tháng hiện tại.
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                  <button
+                                      type="button"
+                                      onClick={() => setIsClearAllConfirmOpen(false)}
+                                      disabled={isClearingAllJars}
+                                      style={{
+                                          borderRadius: 10,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'transparent',
+                                          color: 'var(--foreground)',
+                                          fontWeight: 700,
+                                          padding: '8px 12px',
+                                      }}
+                                  >
+                                      Hủy
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={() => void handleClearAllJars()}
+                                      disabled={isClearingAllJars}
+                                      style={{
+                                          borderRadius: 10,
+                                          border: '1px solid rgba(239, 68, 68, 0.45)',
+                                          background: 'rgba(239, 68, 68, 0.1)',
+                                          color: '#ef4444',
+                                          fontWeight: 800,
+                                          padding: '8px 12px',
+                                          opacity: isClearingAllJars ? 0.6 : 1,
+                                      }}
+                                  >
+                                      {isClearingAllJars ? 'Đang xóa...' : 'Xóa hết'}
+                                  </button>
+                              </div>
+                          </AppCard>
+                      </div>,
+                      document.body,
+                  )
+                : null}
+
+            {isMounted && deleteSetupItemIndex !== null
+                ? createPortal(
+                      <div
+                          style={{
+                              position: 'fixed',
+                              inset: 0,
+                              zIndex: 91,
+                              background: 'rgba(2, 6, 23, 0.56)',
+                              backdropFilter: 'blur(2px)',
+                              display: 'grid',
+                              placeItems: 'center',
+                              padding: 10,
+                          }}
+                      >
+                          <AppCard
+                              strong
+                              style={{
+                                  width: 'min(100%, 420px)',
+                                  borderRadius: 14,
+                                  padding: 14,
+                                  display: 'grid',
+                                  gap: 10,
+                              }}
+                          >
+                              <div style={{ fontSize: 15, fontWeight: 900 }}>Xóa hũ này?</div>
+                              <div style={{ color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.6 }}>
+                                  Hũ sẽ bị xóa khỏi thiết lập hiện tại.
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                  <button
+                                      type="button"
+                                      onClick={() => setDeleteSetupItemIndex(null)}
+                                      style={{
+                                          borderRadius: 10,
+                                          border: '1px solid var(--surface-border)',
+                                          background: 'transparent',
+                                          color: 'var(--foreground)',
+                                          fontWeight: 700,
+                                          padding: '8px 12px',
+                                      }}
+                                  >
+                                      Hủy
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={handleConfirmDeleteSetupItem}
+                                      style={{
+                                          borderRadius: 10,
+                                          border: '1px solid rgba(239, 68, 68, 0.45)',
+                                          background: 'rgba(239, 68, 68, 0.1)',
+                                          color: '#ef4444',
+                                          fontWeight: 800,
+                                          padding: '8px 12px',
+                                      }}
+                                  >
+                                      Xóa hũ
+                                  </button>
                               </div>
                           </AppCard>
                       </div>,
