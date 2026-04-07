@@ -30,9 +30,13 @@ type TSetupJarItem = {
     categoryIds: string[];
 };
 
+type TSetupSource = 'preset' | 'existing';
+
 const clamp = (value: number, min: number, max: number): number => {
     return Math.min(max, Math.max(min, value));
 };
+
+const normalizeText = (value: string): string => value.trim().toLowerCase();
 
 export function CalendarBudgetJars({
     month,
@@ -46,7 +50,9 @@ export function CalendarBudgetJars({
     const [suggestions, setSuggestions] = useState<IBudgetJarPreset[]>([]);
     const [activePresetCode, setActivePresetCode] = useState('');
     const [incomeInput, setIncomeInput] = useState('');
+    const [debouncedIncomeInput, setDebouncedIncomeInput] = useState('');
     const [setupItems, setSetupItems] = useState<TSetupJarItem[]>([]);
+    const [setupSource, setSetupSource] = useState<TSetupSource>('preset');
     const [pickerBudgetIndex, setPickerBudgetIndex] = useState<number | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isClearingAllJars, setIsClearingAllJars] = useState(false);
@@ -80,6 +86,20 @@ export function CalendarBudgetJars({
         setPendingScrollToSetupIndex(null);
     }, [isOpenSetup, pendingScrollToSetupIndex, setupItems.length]);
 
+    useEffect(() => {
+        if (!isOpenSetup) {
+            return;
+        }
+
+        const timerId = window.setTimeout(() => {
+            setDebouncedIncomeInput(incomeInput);
+        }, 1000);
+
+        return () => {
+            window.clearTimeout(timerId);
+        };
+    }, [incomeInput, isOpenSetup]);
+
     const expenseCategories = useMemo(
         () => categories.filter((item) => item.type === 'expense'),
         [categories],
@@ -94,8 +114,8 @@ export function CalendarBudgetJars({
 
         async function loadSuggestions() {
             const result = await getBudgetJarSuggestionsRequest(
-                Number(incomeInput.replace(/\D/g, '')) > 0
-                    ? { incomeAmount: Number(incomeInput.replace(/\D/g, '')) }
+                Number(debouncedIncomeInput.replace(/\D/g, '')) > 0
+                    ? { incomeAmount: Number(debouncedIncomeInput.replace(/\D/g, '')) }
                     : undefined,
             );
 
@@ -112,7 +132,7 @@ export function CalendarBudgetJars({
         return () => {
             ignore = true;
         };
-    }, [activePresetCode, incomeInput, isOpenSetup]);
+    }, [activePresetCode, debouncedIncomeInput, isOpenSetup]);
 
     const sortedJars = useMemo(() => {
         return [...jars].sort((left, right) => {
@@ -143,11 +163,11 @@ export function CalendarBudgetJars({
     }, [activePresetCode, suggestions]);
 
     useEffect(() => {
-        if (!activePreset) {
+        if (!activePreset || setupSource !== 'preset') {
             return;
         }
 
-        const normalizedIncome = Number(incomeInput.replace(/\D/g, '')) || totalIncome || 0;
+        const normalizedIncome = Number(debouncedIncomeInput.replace(/\D/g, '')) || totalIncome || 0;
         const nextItems: TSetupJarItem[] = activePreset.items.map((item) => {
             const categoryIds = item.categoryNames
                 .map((name) => {
@@ -175,7 +195,35 @@ export function CalendarBudgetJars({
         });
 
         setSetupItems(nextItems);
-    }, [activePresetCode, expenseCategories]);
+    }, [activePresetCode, debouncedIncomeInput, expenseCategories, setupSource, totalIncome]);
+
+    useEffect(() => {
+        if (!isOpenSetup) {
+            return;
+        }
+
+        const initialIncome = totalIncome > 0 ? String(Math.round(totalIncome)) : '';
+        setIncomeInput(initialIncome);
+        setDebouncedIncomeInput(initialIncome);
+
+        if (jars.length > 0) {
+            setSetupSource('existing');
+            setSetupItems(
+                jars.map((jar) => ({
+                    name: jar.name,
+                    targetAmount: Math.max(0, Math.round(jar.targetAmount || 0)),
+                    targetPercent:
+                        totalIncome > 0
+                            ? clamp((Math.max(0, jar.targetAmount || 0) / totalIncome) * 100, 0, 200)
+                            : 0,
+                    categoryIds: [...jar.categoryIds],
+                })),
+            );
+            return;
+        }
+
+        setSetupSource('preset');
+    }, [isOpenSetup, jars, totalIncome]);
 
     const totalTargetAmount = useMemo(
         () => setupItems.reduce((sum, item) => sum + item.targetAmount, 0),
@@ -530,7 +578,10 @@ export function CalendarBudgetJars({
                                           <button
                                               key={preset.code}
                                               type="button"
-                                              onClick={() => setActivePresetCode(preset.code)}
+                                              onClick={() => {
+                                                  setSetupSource('preset');
+                                                  setActivePresetCode(preset.code);
+                                              }}
                                               style={{
                                                   textAlign: 'left',
                                                   borderRadius: 12,
@@ -607,6 +658,25 @@ export function CalendarBudgetJars({
 
                                   <div style={{ display: 'grid', gap: 8 }}>
                                       {setupItems.map((item, index) => {
+                                          const suggestedPresetItem = activePreset?.items.find((presetItem) => {
+                                              if (normalizeText(presetItem.name) === normalizeText(item.name)) {
+                                                  return true;
+                                              }
+
+                                              const presetCategoryNames = presetItem.categoryNames.map((name) => normalizeText(name));
+                                              const itemCategoryNames = item.categoryIds
+                                                  .map((categoryId) => categoryById[categoryId]?.name || '')
+                                                  .map((name) => normalizeText(name));
+
+                                              return itemCategoryNames.some((name) => presetCategoryNames.includes(name));
+                                          }) || activePreset?.items[index];
+                                          const suggestedPercent = suggestedPresetItem
+                                              ? clamp(suggestedPresetItem.targetPercent, 0, 80)
+                                              : null;
+                                          const suggestedPercentLeft =
+                                              suggestedPercent !== null
+                                                  ? `${(suggestedPercent / 80) * 100}%`
+                                                  : undefined;
                                           const pickedCategoryPreviews = item.categoryIds
                                               .slice(0, 4)
                                               .map((categoryId) => {
@@ -673,32 +743,52 @@ export function CalendarBudgetJars({
                                                       </button>
                                                   </div>
 
-                                                  <input
-                                                      type="range"
-                                                      min={0}
-                                                      max={80}
-                                                      step={1}
-                                                      value={item.targetPercent}
-                                                      onChange={(event) => {
-                                                          const nextPercent = clamp(Number(event.target.value), 0, 80);
-                                                          const baseIncome = Number(incomeInput.replace(/\D/g, '')) || totalIncome || 0;
+                                                  <div style={{ position: 'relative', display: 'grid', alignItems: 'center' }}>
+                                                      <input
+                                                          type="range"
+                                                          min={0}
+                                                          max={80}
+                                                          step={1}
+                                                          value={item.targetPercent}
+                                                          onChange={(event) => {
+                                                              const nextPercent = clamp(Number(event.target.value), 0, 80);
+                                                              const baseIncome = Number(incomeInput.replace(/\D/g, '')) || totalIncome || 0;
 
-                                                          setSetupItems((prev) =>
-                                                              prev.map((current, currentIndex) =>
-                                                                  currentIndex === index
-                                                                      ? {
-                                                                            ...current,
-                                                                            targetPercent: nextPercent,
-                                                                            targetAmount:
-                                                                                baseIncome > 0
-                                                                                    ? Math.round((baseIncome * nextPercent) / 100)
-                                                                                    : current.targetAmount,
-                                                                        }
-                                                                      : current,
-                                                              ),
-                                                          );
-                                                      }}
-                                                  />
+                                                              setSetupItems((prev) =>
+                                                                  prev.map((current, currentIndex) =>
+                                                                      currentIndex === index
+                                                                          ? {
+                                                                                ...current,
+                                                                                targetPercent: nextPercent,
+                                                                                targetAmount:
+                                                                                    baseIncome > 0
+                                                                                        ? Math.round((baseIncome * nextPercent) / 100)
+                                                                                        : current.targetAmount,
+                                                                            }
+                                                                          : current,
+                                                                  ),
+                                                              );
+                                                          }}
+                                                      />
+                                                      {suggestedPercent !== null ? (
+                                                          <span
+                                                              title={`Mức đề xuất: ${suggestedPercent.toFixed(0)}%`}
+                                                              style={{
+                                                                  position: 'absolute',
+                                                                  left: suggestedPercentLeft,
+                                                                  top: 1,
+                                                                  bottom: 1,
+                                                                  width: 2,
+                                                                  transform: 'translateX(-1px)',
+                                                                  background: 'color-mix(in srgb, #0ea5e9 72%, #22d3ee)',
+                                                                  borderRadius: 999,
+                                                                  pointerEvents: 'none',
+                                                                  boxShadow: '0 0 0 1px color-mix(in srgb, var(--surface-soft) 70%, transparent)',
+                                                                  opacity: 0.95,
+                                                              }}
+                                                          />
+                                                      ) : null}
+                                                  </div>
 
                                                   <label style={{ display: 'grid', gap: 4 }}>
                                                       <span style={{ color: 'var(--muted)', fontSize: 10.5 }}>Số tiền mục tiêu</span>
