@@ -29,17 +29,21 @@ export interface ICreateNotificationPayload {
     amount: number;
     dueDay: number;
     activeMonths?: number;
+    startAt?: number;
     description?: string;
     telegramChatId?: string;
 }
 
 export interface IPayNotificationPayload {
-    walletId: string;
+    walletId?: string;
+    amount?: number;
+    defaultAmount?: number;
+    skipTransaction?: boolean;
 }
 
 export interface INotificationPaymentResponse extends IWalletSummary {
     notification: INotificationItem;
-    transactionId: string;
+    transactionId?: string;
 }
 
 export interface IMessageNotificationItem {

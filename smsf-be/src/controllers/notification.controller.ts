@@ -90,6 +90,9 @@ const payNotification = async (req: Request, res: Response): Promise<Response> =
             notificationId,
             validation.payload.walletId,
             String(req.user?.username || "").trim() || undefined,
+            validation.payload.amount || undefined,
+            validation.payload.defaultAmount || undefined,
+            validation.payload.skipTransaction === true,
         );
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);

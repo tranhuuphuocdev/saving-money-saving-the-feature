@@ -778,11 +778,11 @@ export function TransactionsTab() {
                                         </div>
                                     ) : null}
 
-                                    {transaction.balanceBefore !== undefined && transaction.balanceAfter !== undefined ? (
+                                    {/* {transaction.balanceBefore !== undefined && transaction.balanceAfter !== undefined ? (
                                         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
                                             {formatCurrencyVND(transaction.balanceBefore)} → {formatCurrencyVND(transaction.balanceAfter)}
                                         </div>
-                                    ) : null}
+                                    ) : null} */}
                                 </div>
                             </div>
                         );

@@ -37,6 +37,10 @@ const getAbsoluteMonth = (year: number, month: number): number => {
     return year * 12 + month;
 };
 
+const hasNotificationStarted = (notification: INotification, referenceTimestamp = Date.now()): boolean => {
+    return Number(notification.createdAt || 0) <= referenceTimestamp;
+};
+
 const isNotificationExpired = (notification: INotification, referenceTimestamp = Date.now()): boolean => {
     const activeMonths = Number(notification.activeMonths || 12);
 
@@ -202,6 +206,10 @@ const syncAndPersistNotification = async (
         return notification;
     }
 
+    if (!hasNotificationStarted(notification, referenceTimestamp)) {
+        return notification;
+    }
+
     if (isNotificationExpired(notification, referenceTimestamp)) {
         return saveNotification({
             ...notification,
@@ -222,12 +230,15 @@ const syncAndPersistNotification = async (
 const listCurrentNotificationsByUser = async (
     userId: string,
 ): Promise<INotification[]> => {
+    const now = Date.now();
     const notifications = await listNotificationsByUser(userId);
     const synced = await Promise.all(
-        notifications.map((notification) => syncAndPersistNotification(notification)),
+        notifications.map((notification) => syncAndPersistNotification(notification, now)),
     );
 
-    return sortNotifications(synced.filter((item) => !item.isDeleted));
+    return sortNotifications(
+        synced.filter((item) => !item.isDeleted && hasNotificationStarted(item, now)),
+    );
 };
 
 const createNotificationForUser = async (
@@ -243,7 +254,8 @@ const createNotificationForUser = async (
     }
 
     const now = Date.now();
-    const { month, year } = getPeriodInfo(now);
+    const startAt = payload.startAt && payload.startAt > 0 ? payload.startAt : now;
+    const { month, year } = getPeriodInfo(startAt);
     const notification: INotification = {
         id: randomUUID(),
         userId,
@@ -260,7 +272,7 @@ const createNotificationForUser = async (
         paidYear: 0,
         currentMonth: month,
         currentYear: year,
-        createdAt: now,
+        createdAt: startAt,
         updatedAt: now,
         isDeleted: false,
     };
@@ -290,9 +302,12 @@ const deleteNotificationForUser = async (
 const payNotificationForUser = async (
     userId: string,
     notificationId: string,
-    walletId: string,
+    walletId: string | undefined,
     actorUsername?: string,
-): Promise<{ notification: INotification; transactionId: string }> => {
+    overrideAmount?: number,
+    defaultAmount?: number,
+    skipTransaction = false,
+): Promise<{ notification: INotification; transactionId?: string }> => {
     return withTransaction(async (executor) => {
         const existing = await getNotificationById(userId, notificationId, executor);
 
@@ -310,33 +325,52 @@ const payNotificationForUser = async (
             throw error;
         }
 
-        const transactionResult = await createTransactionForUser(
-            userId,
-            {
-                walletId,
-                amount: currentNotification.amount,
-                category: currentNotification.categoryId,
-                description: currentNotification.description || currentNotification.categoryName,
-                type: "expense",
-                timestamp: Date.now(),
-            },
-            actorUsername,
-            undefined,
-            executor,
-        );
+        if (!skipTransaction && !walletId) {
+            const error = new Error("walletId is required.");
+            (error as Error & { statusCode?: number }).statusCode = 400;
+            throw error;
+        }
+
+        let transactionId: string | undefined;
+        if (!skipTransaction) {
+            const transactionAmount =
+                overrideAmount !== undefined && overrideAmount > 0
+                    ? overrideAmount
+                    : currentNotification.amount;
+
+            const transactionResult = await createTransactionForUser(
+                userId,
+                {
+                    walletId,
+                    amount: transactionAmount,
+                    category: currentNotification.categoryId,
+                    description: currentNotification.description || currentNotification.categoryName,
+                    type: "expense",
+                    timestamp: Date.now(),
+                },
+                actorUsername,
+                undefined,
+                executor,
+            );
+            transactionId = transactionResult.transaction.id;
+        }
 
         const paidNotification: INotification = {
             ...currentNotification,
+            amount:
+                defaultAmount !== undefined && defaultAmount > 0
+                    ? defaultAmount
+                    : currentNotification.amount,
             paymentStatus: PAYMENT_STATUS.PAID,
             paidMonth: currentNotification.currentMonth,
             paidYear: currentNotification.currentYear,
-            lastPaymentTxnId: transactionResult.transaction.id,
+            lastPaymentTxnId: transactionId,
             updatedAt: Date.now(),
         };
 
         return {
             notification: await saveNotification(paidNotification, executor),
-            transactionId: transactionResult.transaction.id,
+            transactionId,
         };
     });
 };
@@ -353,6 +387,10 @@ const syncNotificationStatusesAndSendReminders = async (): Promise<{
     const dueNotificationsByUser = new Map<string, Array<INotification & { remainingDays: number }>>();
 
     for (const notification of notifications) {
+        if (!hasNotificationStarted(notification, now)) {
+            continue;
+        }
+
         const syncedNotification = await syncAndPersistNotification(notification, now);
         if (syncedNotification.updatedAt !== notification.updatedAt) {
             synced += 1;

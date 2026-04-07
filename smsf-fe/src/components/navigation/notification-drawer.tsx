@@ -1,13 +1,13 @@
 'use client';
 
-import { BellRing, CalendarClock, CheckCircle2, Clock3, MessageCircle, Plus, UserPlus, Users2, X } from 'lucide-react';
+import { BellRing, CalendarClock, CheckCircle2, Clock3, MessageCircle, Plus, Trash2, UserPlus, Users2, X } from 'lucide-react';
 import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AppCard } from '@/components/common/app-card';
 import { CustomSelect } from '@/components/common/custom-select';
 import { PrimaryButton } from '@/components/common/primary-button';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { formatCurrencyVND } from '@/lib/formatters';
-import { sortWalletsForSelection } from '@/lib/wallet-selection';
+import { getActiveSortedWallets } from '@/lib/wallet-selection';
 import { useLockBodyScroll } from '@/lib/ui/use-lock-body-scroll';
 import { ICategoryItem, IWalletItem } from '@/types/calendar';
 import { IFriendRequest } from '@/types/messages';
@@ -79,6 +79,11 @@ function formatMonthYear(month: number, year: number): string {
     return `${String(month).padStart(2, '0')}/${year}`;
 }
 
+function getStartOfMonthTimestamp(timestamp: number): number {
+    const date = new Date(timestamp);
+    return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0).getTime();
+}
+
 function getDueBadgeLabel(remainingDays: number): string {
     if (remainingDays < 0) {
         return `Quá hạn ${Math.abs(remainingDays)} ngày`;
@@ -136,6 +141,42 @@ function getNotificationVisualStyle(notification: INotificationItem, remainingDa
         };
     }
 
+    if (remainingDays <= 2) {
+        return {
+            rowBackground: 'color-mix(in srgb, #f94f16 16%, var(--surface-soft))',
+            rowBorder: 'color-mix(in srgb, #ea580c 48%, var(--surface-border))',
+            badgeBackground: 'color-mix(in srgb, #fb923c 22%, transparent)',
+            badgeColor: 'var(--bage-color)',
+            amountColor: '#c2410c',
+            titleColor: 'color-mix(in srgb, var(--foreground) 90%, #9a3412)',
+            iconColor: '#ea580c',
+        };
+    }
+
+    if (remainingDays <= 6) {
+        return {
+            rowBackground: 'color-mix(in srgb, #f58c0b 14%, var(--surface-soft))',
+            rowBorder: 'color-mix(in srgb, #d97706 40%, var(--surface-border))',
+            badgeBackground: 'color-mix(in srgb, #f59e0b 18%, transparent)',
+            badgeColor: 'var(--bage-color)',
+            amountColor: '#b45309',
+            titleColor: 'color-mix(in srgb, var(--foreground) 90%, #92400e)',
+            iconColor: '#d97706',
+        };
+    }
+
+    if (remainingDays <= 10) {
+        return {
+            rowBackground: 'color-mix(in srgb, #c0f903 10%, var(--surface-soft))',
+            rowBorder: 'color-mix(in srgb, #ca8a04 34%, var(--surface-border))',
+            badgeBackground: 'color-mix(in srgb, #eab308 16%, transparent)',
+            badgeColor: 'var(--bage-color)',
+            amountColor: '#a16207',
+            titleColor: 'color-mix(in srgb, var(--foreground) 90%, #854d0e)',
+            iconColor: '#ca8a04',
+        };
+    }
+
     return {
         rowBackground: 'var(--surface-soft)',
         rowBorder: 'var(--surface-border)',
@@ -175,6 +216,7 @@ export function NotificationDrawer({
     const [createCategoryId, setCreateCategoryId] = useState('');
     const [createAmount, setCreateAmount] = useState('');
     const [createDueDay, setCreateDueDay] = useState('1');
+    const [createStartAt, setCreateStartAt] = useState(String(getStartOfMonthTimestamp(Date.now())));
     const [createActiveMonths, setCreateActiveMonths] = useState('12');
     const [createDescription, setCreateDescription] = useState('');
     const [createTelegramChatId, setCreateTelegramChatId] = useState('');
@@ -183,8 +225,12 @@ export function NotificationDrawer({
 
     const [selectedNotification, setSelectedNotification] = useState<INotificationItem | null>(null);
     const [payWalletId, setPayWalletId] = useState('');
+    const [payDefaultAmount, setPayDefaultAmount] = useState('');
+    const [payAmount, setPayAmount] = useState('');
     const [payError, setPayError] = useState('');
     const [isPaying, setIsPaying] = useState(false);
+    const [isSkipping, setIsSkipping] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [deletingNotificationId, setDeletingNotificationId] = useState<string | null>(null);
     const [friendActionLoadingMap, setFriendActionLoadingMap] = useState<Record<string, boolean>>({});
 
@@ -262,28 +308,51 @@ export function NotificationDrawer({
     };
 
     const richestWalletId = useMemo(() => {
-        if (wallets.length === 0) {
+        const activeWallets = getActiveSortedWallets(wallets);
+        if (activeWallets.length === 0) {
             return '';
         }
 
-        return wallets.reduce((bestWallet, wallet) => {
+        return activeWallets.reduce((bestWallet, wallet) => {
             if (!bestWallet || wallet.balance > bestWallet.balance) {
                 return wallet;
             }
 
             return bestWallet;
-        }, wallets[0]).id;
+        }, activeWallets[0]).id;
     }, [wallets]);
 
     const sortedNotifications = useMemo(() => {
         return [...notifications].sort((left, right) => {
-            if (right.createdAt !== left.createdAt) {
-                return right.createdAt - left.createdAt;
+            const leftPaid = left.paymentStatus === 'paid' ? 0 : 1;
+            const rightPaid = right.paymentStatus === 'paid' ? 0 : 1;
+
+            if (leftPaid !== rightPaid) {
+                return leftPaid - rightPaid;
+            }
+
+            if (left.nextDueAt !== right.nextDueAt) {
+                return right.nextDueAt - left.nextDueAt;
             }
 
             return right.updatedAt - left.updatedAt;
         });
     }, [notifications]);
+
+    const createStartMonthOptions = useMemo(() => {
+        const options: Array<{ value: string; label: string }> = [];
+        const now = new Date();
+
+        for (let index = 0; index < 24; index += 1) {
+            const current = new Date(now.getFullYear(), now.getMonth() + index, 1);
+            options.push({
+                value: String(current.getTime()),
+                label: formatMonthYear(current.getMonth() + 1, current.getFullYear()),
+            });
+        }
+
+        return options;
+    }, []);
 
     const notificationTimeline = useMemo(() => {
         const messageItems = messageNotifications.map((item) => ({
@@ -404,6 +473,7 @@ export function NotificationDrawer({
         setCreateCategoryId(expenseCategories[0]?.id || '');
         setCreateAmount('');
         setCreateDueDay('1');
+        setCreateStartAt(String(getStartOfMonthTimestamp(Date.now())));
         setCreateActiveMonths('12');
         setCreateDescription('');
         setCreateTelegramChatId('');
@@ -414,12 +484,16 @@ export function NotificationDrawer({
     const closePayModal = () => {
         setSelectedNotification(null);
         setPayWalletId(richestWalletId);
+        setPayDefaultAmount('');
+        setPayAmount('');
         setPayError('');
+        setIsSkipping(false);
     };
 
     const submitCreateNotification = async () => {
         const amountValue = parseInt(createAmount.replace(/\D/g, ''), 10) || 0;
         const dueDayValue = parseInt(createDueDay, 10);
+        const startAtValue = parseInt(createStartAt, 10);
         const activeMonthsValue = parseInt(createActiveMonths, 10);
 
         if (!createCategoryId) {
@@ -442,6 +516,11 @@ export function NotificationDrawer({
             return;
         }
 
+        if (!Number.isFinite(startAtValue) || startAtValue <= 0) {
+            setCreateError('Tháng bắt đầu nhắc lịch không hợp lệ.');
+            return;
+        }
+
         setCreateError('');
         setIsCreating(true);
 
@@ -450,6 +529,7 @@ export function NotificationDrawer({
                 categoryId: createCategoryId,
                 amount: amountValue,
                 dueDay: dueDayValue,
+                startAt: startAtValue,
                 activeMonths: activeMonthsValue,
                 description: createDescription.trim() || undefined,
                 telegramChatId: userTelegramChatId?.trim() || createTelegramChatId.trim() || undefined,
@@ -466,11 +546,12 @@ export function NotificationDrawer({
     };
 
     const submitDeleteNotification = async (notificationId: string) => {
-        if (deletingNotificationId) {
+        if (deletingNotificationId || isDeleting) {
             return;
         }
 
         setDeletingNotificationId(notificationId);
+        setIsDeleting(true);
         try {
             await onDeleteNotification(notificationId);
             if (selectedNotification?.id === notificationId) {
@@ -483,6 +564,7 @@ export function NotificationDrawer({
             );
         } finally {
             setDeletingNotificationId(null);
+            setIsDeleting(false);
         }
     };
 
@@ -496,11 +578,32 @@ export function NotificationDrawer({
             return;
         }
 
+        const amountValue = payAmount
+            ? parseInt(payAmount.replace(/\D/g, ''), 10) || 0
+            : selectedNotification.amount;
+        const defaultAmountValue = payDefaultAmount
+            ? parseInt(payDefaultAmount.replace(/\D/g, ''), 10) || 0
+            : selectedNotification.amount;
+
+        if (!Number.isFinite(amountValue) || amountValue <= 0) {
+            setPayError('Số tiền phải lớn hơn 0.');
+            return;
+        }
+
+        if (!Number.isFinite(defaultAmountValue) || defaultAmountValue <= 0) {
+            setPayError('Số tiền mặc định phải lớn hơn 0.');
+            return;
+        }
+
         setPayError('');
         setIsPaying(true);
 
         try {
-            await onPayNotification(selectedNotification.id, { walletId: payWalletId });
+            await onPayNotification(selectedNotification.id, {
+                walletId: payWalletId,
+                amount: amountValue,
+                defaultAmount: defaultAmountValue,
+            });
             closePayModal();
         } catch (error) {
             setPayError(
@@ -509,6 +612,41 @@ export function NotificationDrawer({
             );
         } finally {
             setIsPaying(false);
+        }
+    };
+
+    const submitSkipNotification = async () => {
+        if (!selectedNotification) {
+            return;
+        }
+
+        setPayError('');
+        setIsSkipping(true);
+
+        const defaultAmountValue = payDefaultAmount
+            ? parseInt(payDefaultAmount.replace(/\D/g, ''), 10) || 0
+            : selectedNotification.amount;
+
+        if (!Number.isFinite(defaultAmountValue) || defaultAmountValue <= 0) {
+            setPayError('Số tiền mặc định phải lớn hơn 0.');
+            setIsSkipping(false);
+            return;
+        }
+
+        try {
+            await onPayNotification(selectedNotification.id, {
+                walletId: payWalletId || undefined,
+                defaultAmount: defaultAmountValue,
+                skipTransaction: true,
+            });
+            closePayModal();
+        } catch (error) {
+            setPayError(
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                    'Bỏ qua tháng này thất bại.',
+            );
+        } finally {
+            setIsSkipping(false);
         }
     };
 
@@ -1047,6 +1185,8 @@ export function NotificationDrawer({
 
                                           setSelectedNotification(item);
                                           setPayWalletId(richestWalletId);
+                                          setPayDefaultAmount(String(item.amount));
+                                          setPayAmount(String(item.amount));
                                           setPayError('');
                                       }}
                                       onKeyDown={(event) => {
@@ -1058,6 +1198,8 @@ export function NotificationDrawer({
                                               event.preventDefault();
                                               setSelectedNotification(item);
                                               setPayWalletId(richestWalletId);
+                                              setPayDefaultAmount(String(item.amount));
+                                              setPayAmount(String(item.amount));
                                               setPayError('');
                                           }
                                       }}
@@ -1073,7 +1215,7 @@ export function NotificationDrawer({
                                           color: visualStyle.titleColor,
                                           textAlign: 'left',
                                           opacity: isPaid ? 0.94 : 1,
-                                          cursor: isPaid ? 'default' : 'pointer',
+                                          cursor: isPaid ? 'not-allowed' : 'pointer',
                                       }}
                                   >
                                       <div style={{ minWidth: 0 }}>
@@ -1138,27 +1280,6 @@ export function NotificationDrawer({
                                           >
                                               {formatCurrencyVND(item.amount)}
                                           </div>
-                                          <button
-                                              type="button"
-                                              onClick={(event) => {
-                                                  event.stopPropagation();
-                                                  void submitDeleteNotification(item.id);
-                                              }}
-                                              disabled={Boolean(deletingNotificationId)}
-                                              style={{
-                                                  marginTop: 6,
-                                                  borderRadius: 8,
-                                                  border: '1px solid color-mix(in srgb, #ef4444 40%, var(--surface-border))',
-                                                  background: 'transparent',
-                                                  color: '#ef4444',
-                                                  fontSize: 10.5,
-                                                  fontWeight: 700,
-                                                  minHeight: 24,
-                                                  padding: '0 8px',
-                                              }}
-                                          >
-                                              {deletingNotificationId === item.id ? 'Đang xóa...' : 'Xóa'}
-                                          </button>
                                       </div>
                                   </div>
                               );
@@ -1172,6 +1293,7 @@ export function NotificationDrawer({
                         if (activeSection === 'reminder') {
                             setCreateCategoryId(expenseCategories[0]?.id || '');
                             setCreateDueDay('1');
+                            setCreateStartAt(String(getStartOfMonthTimestamp(Date.now())));
                             setCreateActiveMonths('12');
                             setCreateAmount('');
                             setCreateDescription('');
@@ -1267,16 +1389,26 @@ export function NotificationDrawer({
                             />
                         </div>
 
-                        <div style={{ display: 'grid', gap: 8 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Ngày định kỳ mỗi tháng</div>
-                            <CustomSelect
-                                value={createDueDay}
-                                onChange={setCreateDueDay}
-                                options={Array.from({ length: 31 }).map((_, index) => ({
-                                    value: String(index + 1),
-                                    label: `Ngày ${String(index + 1).padStart(2, '0')}`,
-                                }))}
-                            />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Ngày định kỳ mỗi tháng</div>
+                                <CustomSelect
+                                    value={createDueDay}
+                                    onChange={setCreateDueDay}
+                                    options={Array.from({ length: 31 }).map((_, index) => ({
+                                        value: String(index + 1),
+                                        label: `Ngày ${String(index + 1).padStart(2, '0')}`,
+                                    }))}
+                                />
+                            </div>
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Bắt đầu nhắc từ tháng</div>
+                                <CustomSelect
+                                    value={createStartAt}
+                                    onChange={setCreateStartAt}
+                                    options={createStartMonthOptions}
+                                />
+                            </div>
                         </div>
 
                         <div style={{ display: 'grid', gap: 8 }}>
@@ -1329,7 +1461,7 @@ export function NotificationDrawer({
                             </div>
                         ) : (
                             <div style={{ display: 'grid', gap: 8 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Telegram chat id (tuỳ chọn)</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Thêm Telegram ID để nhận thông báo </div>
                                 <input
                                     type="text"
                                     value={createTelegramChatId}
@@ -1387,8 +1519,8 @@ export function NotificationDrawer({
                     <AppCard strong style={{ width: 'min(100%, 380px)', padding: 16, borderRadius: 16, display: 'grid', gap: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                             <div>
-                                <div style={{ fontSize: 15, fontWeight: 900 }}>Bạn đã thanh toán khoản chi này?</div>
-                                <div style={{ marginTop: 3, color: 'var(--muted)', fontSize: 12.5 }}>Xác nhận để tạo giao dịch chi tiêu tương ứng.</div>
+                                <div style={{ fontSize: 15, fontWeight: 900 }}>Xác nhận thanh toán</div>
+                                <div style={{ marginTop: 3, color: 'var(--muted)', fontSize: 12.5 }}>Chọn ví và điều chỉnh số tiền nếu cần.</div>
                             </div>
                             <button
                                 type="button"
@@ -1406,12 +1538,32 @@ export function NotificationDrawer({
                             </button>
                         </div>
 
-                        <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 6 }}>
+                        <div style={{ borderRadius: 12, border: '1px solid var(--surface-border)', background: 'var(--surface-soft)', padding: '12px 14px', display: 'grid', gap: 8 }}>
                             <div style={{ fontWeight: 800, fontSize: 14 }}>{selectedNotification.categoryName}</div>
                             <div style={{ color: 'var(--muted)', fontSize: 12 }}>{selectedNotification.description || selectedNotification.categoryName}</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
-                                <span style={{ color: 'var(--muted)' }}>Hạn tháng này: ngày {String(selectedNotification.dueDay).padStart(2, '0')}</span>
-                                <span style={{ fontWeight: 800 }}>{formatCurrencyVND(selectedNotification.amount)}</span>
+                            <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>Hạn tháng này: ngày {String(selectedNotification.dueDay).padStart(2, '0')}</div>
+                            <div style={{ display: 'grid', gap: 6 }}>
+                                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Số tiền mặc định của nhắc lịch</div>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={
+                                        payDefaultAmount
+                                            ? new Intl.NumberFormat('vi-VN').format(parseInt(payDefaultAmount.replace(/\D/g, ''), 10) || 0)
+                                            : ''
+                                    }
+                                    onChange={(event) => setPayDefaultAmount(event.target.value.replace(/\D/g, ''))}
+                                    placeholder={new Intl.NumberFormat('vi-VN').format(selectedNotification.amount)}
+                                    style={{
+                                        padding: '8px 10px',
+                                        borderRadius: 9,
+                                        border: '1px solid var(--surface-border)',
+                                        background: 'var(--surface-strong)',
+                                        color: 'var(--foreground)',
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                    }}
+                                />
                             </div>
                         </div>
 
@@ -1426,7 +1578,7 @@ export function NotificationDrawer({
                             <CustomSelect
                                 value={payWalletId}
                                 onChange={setPayWalletId}
-                                options={sortWalletsForSelection(wallets).map((wallet) => ({
+                                options={getActiveSortedWallets(wallets).map((wallet) => ({
                                     value: wallet.id,
                                     label: `${wallet.name} • ${formatCurrencyVND(wallet.balance)}`,
                                 }))}
@@ -1434,25 +1586,97 @@ export function NotificationDrawer({
                             />
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                            <button
-                                type="button"
-                                onClick={closePayModal}
-                                disabled={isPaying}
+                        <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Số tiền thanh toán (tạo giao dịch)</div>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={
+                                    payAmount
+                                        ? new Intl.NumberFormat('vi-VN').format(parseInt(payAmount.replace(/\D/g, ''), 10) || 0)
+                                        : ''
+                                }
+                                onChange={(event) => setPayAmount(event.target.value.replace(/\D/g, ''))}
+                                placeholder={new Intl.NumberFormat('vi-VN').format(selectedNotification.amount)}
                                 style={{
-                                    minHeight: 42,
-                                    borderRadius: 12,
-                                    border: '1px solid var(--border)',
-                                    background: 'transparent',
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-soft)',
                                     color: 'var(--foreground)',
+                                    fontSize: 14,
                                     fontWeight: 700,
                                 }}
+                            />
+                            {payAmount && parseInt(payAmount.replace(/\D/g, ''), 10) !== selectedNotification.amount ? (
+                                <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    Mặc định: {new Intl.NumberFormat('vi-VN').format(selectedNotification.amount)}₫
+                                    <button
+                                        type="button"
+                                        onClick={() => setPayAmount(String(selectedNotification.amount))}
+                                        style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                                    >
+                                        Khôi phục
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+
+                        <div style={{ display: 'grid', gap: 6, marginTop: 2 }}>
+                            <button
+                                type="button"
+                                onClick={() => { void submitDeleteNotification(selectedNotification.id); }}
+                                disabled={isPaying || isSkipping || isDeleting}
+                                style={{
+                                    minHeight: 32,
+                                    padding: '0 10px',
+                                    borderRadius: 9,
+                                    border: '1px solid color-mix(in srgb, #ef4444 44%, var(--surface-border))',
+                                    background: 'color-mix(in srgb, #ef4444 8%, var(--surface-soft))',
+                                    color: '#ef4444',
+                                    fontWeight: 700,
+                                    fontSize: 11,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 5,
+                                    cursor: isDeleting || isPaying || isSkipping ? 'not-allowed' : 'pointer',
+                                    opacity: isDeleting || isPaying || isSkipping ? 0.65 : 1,
+                                    transition: 'opacity 150ms ease',
+                                }}
                             >
-                                Chưa thanh toán
+                                <Trash2 size={13} />
+                                {isDeleting ? 'Đang xoá...' : 'Xoá'}
                             </button>
-                            <PrimaryButton onClick={submitPayNotification} disabled={isPaying} style={{ justifyContent: 'center', minHeight: 42 }}>
-                                {isPaying ? <span>Đang thanh toán...</span> : <><CheckCircle2 size={16} /> Đã thanh toán</>}
-                            </PrimaryButton>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                                <button
+                                    type="button"
+                                    onClick={() => { void submitSkipNotification(); }}
+                                    disabled={isPaying || isSkipping || isDeleting}
+                                    style={{
+                                        minHeight: 32,
+                                        padding: '0 10px',
+                                        borderRadius: 9,
+                                        border: '1px solid color-mix(in srgb, #f59e0b 44%, var(--surface-border))',
+                                        background: 'color-mix(in srgb, #f59e0b 9%, var(--surface-soft))',
+                                        color: '#b45309',
+                                        fontWeight: 700,
+                                        fontSize: 11,
+                                        cursor: isPaying || isSkipping || isDeleting ? 'not-allowed' : 'pointer',
+                                        opacity: isPaying || isSkipping || isDeleting ? 0.65 : 1,
+                                        transition: 'opacity 150ms ease',
+                                    }}
+                                >
+                                    {isSkipping ? 'Đang bỏ qua...' : 'Bỏ qua tháng này'}
+                                </button>
+                                <PrimaryButton
+                                    onClick={submitPayNotification}
+                                    disabled={isPaying || isSkipping || isDeleting}
+                                    style={{ justifyContent: 'center', minHeight: 32, fontSize: 11.5, gap: 5 }}
+                                >
+                                    {isPaying ? <span>Đang thanh toán...</span> : <><CheckCircle2 size={13} /> Đã thanh toán</>}
+                                </PrimaryButton>
+                            </div>
                         </div>
                     </AppCard>
                 </div>

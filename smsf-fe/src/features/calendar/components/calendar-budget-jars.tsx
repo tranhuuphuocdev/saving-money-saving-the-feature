@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CircleDollarSign, Plus, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { AppCard } from '@/components/common/app-card';
@@ -53,6 +53,8 @@ export function CalendarBudgetJars({
     const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
     const [deleteSetupItemIndex, setDeleteSetupItemIndex] = useState<number | null>(null);
     const [isMounted, setIsMounted] = useState(false);
+    const [pendingScrollToSetupIndex, setPendingScrollToSetupIndex] = useState<number | null>(null);
+    const setupItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
     useLockBodyScroll(
         isOpenSetup
@@ -64,6 +66,19 @@ export function CalendarBudgetJars({
     useEffect(() => {
         setIsMounted(true);
     }, []);
+
+    useEffect(() => {
+        if (!isOpenSetup || pendingScrollToSetupIndex === null) {
+            return;
+        }
+
+        const target = setupItemRefs.current[pendingScrollToSetupIndex];
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        setPendingScrollToSetupIndex(null);
+    }, [isOpenSetup, pendingScrollToSetupIndex, setupItems.length]);
 
     const expenseCategories = useMemo(
         () => categories.filter((item) => item.type === 'expense'),
@@ -195,15 +210,20 @@ export function CalendarBudgetJars({
         pickerBudgetIndex !== null ? setupItems[pickerBudgetIndex] : undefined;
 
     function addCustomBudget() {
-        setSetupItems((prev) => [
-            ...prev,
-            {
-                name: `Hũ mới ${prev.length + 1}`,
-                targetPercent: 5,
-                targetAmount: 0,
-                categoryIds: [],
-            },
-        ]);
+        setSetupItems((prev) => {
+            const nextIndex = prev.length;
+            setPendingScrollToSetupIndex(nextIndex);
+
+            return [
+                ...prev,
+                {
+                    name: `Hũ mới ${prev.length + 1}`,
+                    targetPercent: 5,
+                    targetAmount: 0,
+                    categoryIds: [],
+                },
+            ];
+        });
     }
 
     async function handleSubmitSetup() {
@@ -339,9 +359,13 @@ export function CalendarBudgetJars({
                         {sortedJars.map((jar) => {
                             const clamped = clamp(jar.progressPercent, 0, 140);
                             const danger = clamped > 100;
-                            const categoryIcons = jar.categoryIds
-                                .slice(0, 4)
-                                .map((categoryId) => categoryById[categoryId]?.icon || '🧩');
+                            const categoryPreviews = jar.categoryIds.slice(0, 4).map((categoryId) => {
+                                const category = categoryById[categoryId];
+                                return {
+                                    icon: category?.icon || '🧩',
+                                    name: category?.name || 'Danh mục',
+                                };
+                            });
 
                             return (
                                 <div
@@ -359,9 +383,11 @@ export function CalendarBudgetJars({
                                         <div>
                                             <div style={{ fontSize: 12.5, fontWeight: 800 }}>{jar.name}</div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                                                {categoryIcons.map((icon, index) => (
+                                                {categoryPreviews.map((preview, index) => (
                                                     <span
                                                         key={`${jar.id}-icon-${index}`}
+                                                        title={preview.name}
+                                                        aria-label={preview.name}
                                                         style={{
                                                             width: 18,
                                                             height: 18,
@@ -371,9 +397,10 @@ export function CalendarBudgetJars({
                                                             fontSize: 11,
                                                             background: 'var(--chip-bg)',
                                                             border: '1px solid var(--chip-border)',
+                                                            cursor: 'help',
                                                         }}
                                                     >
-                                                        {icon}
+                                                        {preview.icon}
                                                     </span>
                                                 ))}
                                                 <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
@@ -580,13 +607,22 @@ export function CalendarBudgetJars({
 
                                   <div style={{ display: 'grid', gap: 8 }}>
                                       {setupItems.map((item, index) => {
-                                          const pickedIcons = item.categoryIds
+                                          const pickedCategoryPreviews = item.categoryIds
                                               .slice(0, 4)
-                                              .map((categoryId) => categoryById[categoryId]?.icon || '🧩');
+                                              .map((categoryId) => {
+                                                  const category = categoryById[categoryId];
+                                                  return {
+                                                      icon: category?.icon || '🧩',
+                                                      name: category?.name || 'Danh mục',
+                                                  };
+                                              });
 
                                           return (
                                               <div
                                                   key={index}
+                                                  ref={(node) => {
+                                                      setupItemRefs.current[index] = node;
+                                                  }}
                                                   style={{
                                                       borderRadius: 10,
                                                       border: '1px solid var(--surface-border)',
@@ -700,9 +736,11 @@ export function CalendarBudgetJars({
 
                                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                                                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                                          {pickedIcons.map((icon, iconIndex) => (
+                                                          {pickedCategoryPreviews.map((preview, iconIndex) => (
                                                               <span
                                                                   key={`${item.name}-picked-${iconIndex}`}
+                                                                  title={preview.name}
+                                                                  aria-label={preview.name}
                                                                   style={{
                                                                       width: 18,
                                                                       height: 18,
@@ -712,9 +750,10 @@ export function CalendarBudgetJars({
                                                                       fontSize: 11,
                                                                       background: 'var(--chip-bg)',
                                                                       border: '1px solid var(--chip-border)',
+                                                                      cursor: 'help',
                                                                   }}
                                                               >
-                                                                  {icon}
+                                                                  {preview.icon}
                                                               </span>
                                                           ))}
                                                           <span style={{ color: 'var(--muted)', fontSize: 10.5 }}>
@@ -749,74 +788,79 @@ export function CalendarBudgetJars({
                                       borderTop: '1px solid var(--surface-border)',
                                       paddingTop: 10,
                                       display: 'grid',
-                                      gridTemplateColumns: '1fr auto auto auto',
-                                      alignItems: 'center',
                                       gap: 8,
                                   }}
                               >
-                                  <button
-                                      type="button"
-                                      onClick={addCustomBudget}
-                                      style={{
-                                          justifySelf: 'start',
-                                          borderRadius: 10,
-                                          border: '1px dashed var(--chip-border)',
-                                          background: 'transparent',
-                                          color: 'var(--foreground)',
-                                          padding: '7px 10px',
-                                          fontSize: 11,
-                                          fontWeight: 800,
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: 5,
-                                      }}
-                                  >
-                                      <Plus size={13} /> Thêm hũ
-                                  </button>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8 }}>
+                                      <button
+                                          type="button"
+                                          onClick={() => setIsClearAllConfirmOpen(true)}
+                                          disabled={isSubmitting || isClearingAllJars}
+                                          style={{
+                                              borderRadius: 10,
+                                              border: '1px solid rgba(239, 68, 68, 0.45)',
+                                              background: 'rgba(239, 68, 68, 0.08)',
+                                              color: '#ef4444',
+                                              fontWeight: 700,
+                                              minHeight: 36,
+                                              padding: '0 12px',
+                                              opacity: isSubmitting || isClearingAllJars ? 0.6 : 1,
+                                          }}
+                                      >
+                                          {isClearingAllJars ? 'Đang xóa...' : 'Xóa tất cả'}
+                                      </button>
+                                      <button
+                                          type="button"
+                                          onClick={addCustomBudget}
+                                          style={{
+                                              borderRadius: 10,
+                                              border: '1px dashed var(--chip-border)',
+                                              background: 'transparent',
+                                              color: 'var(--foreground)',
+                                              minHeight: 36,
+                                              padding: '0 12px',
+                                              fontSize: 11,
+                                              fontWeight: 800,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              gap: 5,
+                                          }}
+                                      >
+                                          <Plus size={13} /> Thêm hũ
+                                      </button>
+                                  </div>
 
-                                  <button
-                                      type="button"
-                                      onClick={() => setIsClearAllConfirmOpen(true)}
-                                      disabled={isSubmitting || isClearingAllJars}
-                                      style={{
-                                          borderRadius: 12,
-                                          border: '1px solid rgba(239, 68, 68, 0.45)',
-                                          background: 'rgba(239, 68, 68, 0.08)',
-                                          color: '#ef4444',
-                                          fontWeight: 700,
-                                          padding: '9px 12px',
-                                          opacity: isSubmitting || isClearingAllJars ? 0.6 : 1,
-                                      }}
-                                  >
-                                      {isClearingAllJars ? 'Đang xóa...' : 'Xóa toàn bộ hũ'}
-                                  </button>
-
-                                  <button
-                                      type="button"
-                                      onClick={() => setIsOpenSetup(false)}
-                                      style={{
-                                          borderRadius: 12,
-                                          border: '1px solid var(--surface-border)',
-                                          background: 'transparent',
-                                          color: 'var(--foreground)',
-                                          fontWeight: 700,
-                                          padding: '9px 12px',
-                                      }}
-                                  >
-                                      Hủy
-                                  </button>
-                                  <PrimaryButton
-                                      onClick={() => void handleSubmitSetup()}
-                                      disabled={isSubmitting || isClearingAllJars || setupItems.length === 0}
-                                      style={{
-                                          opacity: isSubmitting || isClearingAllJars || setupItems.length === 0 ? 0.6 : 1,
-                                          padding: '9px 12px',
-                                          borderRadius: 12,
-                                      }}
-                                  >
-                                      <CircleDollarSign size={14} />
-                                      {isSubmitting ? 'Đang lưu...' : 'Lưu thiết lập hũ'}
-                                  </PrimaryButton>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                      <button
+                                          type="button"
+                                          onClick={() => setIsOpenSetup(false)}
+                                          style={{
+                                              borderRadius: 10,
+                                              border: '1px solid var(--surface-border)',
+                                              background: 'transparent',
+                                              color: 'var(--foreground)',
+                                              fontWeight: 700,
+                                              minHeight: 36,
+                                              padding: '0 12px',
+                                          }}
+                                      >
+                                          Hủy
+                                      </button>
+                                      <PrimaryButton
+                                          onClick={() => void handleSubmitSetup()}
+                                          disabled={isSubmitting || isClearingAllJars || setupItems.length === 0}
+                                          style={{
+                                              opacity: isSubmitting || isClearingAllJars || setupItems.length === 0 ? 0.6 : 1,
+                                              borderRadius: 10,
+                                              minHeight: 36,
+                                              justifyContent: 'center',
+                                          }}
+                                      >
+                                          <CircleDollarSign size={14} />
+                                          {isSubmitting ? 'Đang lưu...' : 'Lưu thiết lập hũ'}
+                                      </PrimaryButton>
+                                  </div>
                               </div>
                           </AppCard>
                       </div>,

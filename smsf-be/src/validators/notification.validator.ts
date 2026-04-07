@@ -40,6 +40,25 @@ const toInteger = (value: unknown): number | undefined => {
     return undefined;
 };
 
+const toBoolean = (value: unknown): boolean | undefined => {
+    if (typeof value === "boolean") {
+        return value;
+    }
+
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "true") {
+            return true;
+        }
+
+        if (normalized === "false") {
+            return false;
+        }
+    }
+
+    return undefined;
+};
+
 const validateCreateNotificationPayload = (
     input: unknown,
 ): IValidationResult<ICreateNotificationPayload> => {
@@ -58,6 +77,10 @@ const validateCreateNotificationPayload = (
         body.activeMonths === undefined || body.activeMonths === null
             ? undefined
             : toInteger(body.activeMonths);
+    const startAt =
+        body.startAt === undefined || body.startAt === null
+            ? undefined
+            : toInteger(body.startAt);
     const description =
         body.description === undefined || body.description === null
             ? undefined
@@ -87,6 +110,10 @@ const validateCreateNotificationPayload = (
         errors.push("activeMonths must be an integer between 1 and 240.");
     }
 
+    if (body.startAt !== undefined && body.startAt !== null && (!startAt || startAt <= 0)) {
+        errors.push("startAt must be a positive timestamp.");
+    }
+
     if (description && description.length > 255) {
         errors.push("description must be less than or equal to 255 characters.");
     }
@@ -107,6 +134,7 @@ const validateCreateNotificationPayload = (
             amount,
             dueDay,
             activeMonths,
+            startAt,
             description: description || undefined,
             telegramChatId: telegramChatId || undefined,
         },
@@ -125,18 +153,51 @@ const validatePayNotificationPayload = (
 
     const body = input as Record<string, unknown>;
     const walletId = String(body.walletId || "").trim();
+    const amount =
+        body.amount === undefined || body.amount === null
+            ? undefined
+            : toPositiveNumber(body.amount);
+    const defaultAmount =
+        body.defaultAmount === undefined || body.defaultAmount === null
+            ? undefined
+            : toPositiveNumber(body.defaultAmount);
+    const skipTransaction =
+        body.skipTransaction === undefined || body.skipTransaction === null
+            ? undefined
+            : toBoolean(body.skipTransaction);
 
-    if (!walletId) {
+    if (!skipTransaction && !walletId) {
         return {
             isValid: false,
             errors: ["walletId is required."],
         };
     }
 
+    if (body.amount !== undefined && body.amount !== null && !amount) {
+        return {
+            isValid: false,
+            errors: ["amount must be a positive number."],
+        };
+    }
+
+    if (body.defaultAmount !== undefined && body.defaultAmount !== null && !defaultAmount) {
+        return {
+            isValid: false,
+            errors: ["defaultAmount must be a positive number."],
+        };
+    }
+
+    if (body.skipTransaction !== undefined && body.skipTransaction !== null && skipTransaction === undefined) {
+        return {
+            isValid: false,
+            errors: ["skipTransaction must be a boolean."],
+        };
+    }
+
     return {
         isValid: true,
         errors: [],
-        payload: { walletId },
+        payload: { walletId: walletId || undefined, amount, defaultAmount, skipTransaction },
     };
 };
 

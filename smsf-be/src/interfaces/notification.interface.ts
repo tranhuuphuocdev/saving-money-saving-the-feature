@@ -29,10 +29,14 @@ export interface ICreateNotificationPayload {
     amount: number;
     dueDay: number;
     activeMonths?: number;
+    startAt?: number;
     description?: string;
     telegramChatId?: string;
 }
 
 export interface IPayNotificationPayload {
-    walletId: string;
+    walletId?: string;
+    amount?: number;
+    defaultAmount?: number;
+    skipTransaction?: boolean;
 }
