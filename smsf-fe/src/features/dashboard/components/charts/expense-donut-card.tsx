@@ -1,19 +1,17 @@
 import { AppCard } from '@/components/common/app-card';
 import { formatCurrencyVND, formatMonthYear } from '@/lib/formatters';
 import { IExpenseCategoryItem } from '@/types/dashboard';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 
 interface IExpenseDonutCardProps {
     monthLabel: string;
     categories: IExpenseCategoryItem[];
+    activeCategoryId: string | null;
+    onActiveCategoryChange: (categoryId: string | null) => void;
 }
 
-export function ExpenseDonutCard({ monthLabel, categories }: IExpenseDonutCardProps) {
-    const [activeCategoryId, setActiveCategoryId] = useState<string | null>(
-        categories[0]?.id || null,
-    );
-
+export function ExpenseDonutCard({ monthLabel, categories, activeCategoryId, onActiveCategoryChange }: IExpenseDonutCardProps) {
     const activeCategory = useMemo(() => {
         return (
             categories.find((item) => item.id === activeCategoryId) ||
@@ -32,7 +30,7 @@ export function ExpenseDonutCard({ monthLabel, categories }: IExpenseDonutCardPr
         <AppCard strong style={{ padding: 14, minHeight: 320 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                 <div>
-                    <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>Tỷ lệ chi tiêu theo danh mục</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>Biểu đồ chi tiêu phân bổ</div>
                     <div style={{ marginTop: 4, fontSize: 12.5, fontWeight: 800 }}>{formatCurrencyVND(totalExpense)}</div>
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--accent-text)', fontWeight: 700 }}>{formatMonthYear(monthLabel)}</div>
@@ -52,8 +50,8 @@ export function ExpenseDonutCard({ monthLabel, categories }: IExpenseDonutCardPr
                             paddingAngle={1.5}
                             cornerRadius={6}
                             isAnimationActive={false}
-                            onMouseEnter={(payload) => setActiveCategoryId(payload.id)}
-                            onClick={(payload) => setActiveCategoryId(payload.id)}
+                            onMouseEnter={(payload) => onActiveCategoryChange(payload.id)}
+                            onClick={(payload) => onActiveCategoryChange(payload.id)}
                         >
                             {categories.map((entry) => (
                                 <Cell

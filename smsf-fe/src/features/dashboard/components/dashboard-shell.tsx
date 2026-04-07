@@ -13,7 +13,6 @@ import { FriendsTab } from '@/features/dashboard/components/friends-tab';
 import { InitialWalletSetupModal } from '@/features/dashboard/components/initial-wallet-setup-modal';
 import { SavingsRingCard } from '@/features/dashboard/components/charts/savings-ring-card';
 import { SpendingTrendCard } from '@/features/dashboard/components/charts/spending-trend-card';
-import { RecentTransactionsCard } from '@/features/dashboard/components/recent-transactions-card';
 import { WalletHistoryTab } from '@/features/dashboard/components/wallet-history-tab';
 import { CalendarShell } from '@/features/calendar/components/calendar-shell';
 import { TransactionsTab } from '@/features/dashboard/components/transactions-tab';
@@ -47,7 +46,7 @@ import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 import { useTheme } from '@/providers/theme-provider';
 import { ICategoryItem } from '@/types/calendar';
-import { IExpenseCategoryItem, IRecentTransaction, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
+import { IExpenseCategoryItem, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
 import { IConversation, IDirectMessage, IFriendRequest } from '@/types/messages';
 import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem } from '@/types/notification';
 import { ISharedFundInviteItem } from '@/types/shared-fund';
@@ -106,8 +105,8 @@ export function DashboardShell() {
     const [isPaymentNotificationsLoading, setIsPaymentNotificationsLoading] = useState(false);
     const [isFirstCalendarLoading, setIsFirstCalendarLoading] = useState(false);
     const [isCalendarVisible, setIsCalendarVisible] = useState(true);
-    const [recentTransactions, setRecentTransactions] = useState<IRecentTransaction[]>([]);
     const [expenseCategories, setExpenseCategories] = useState<IExpenseCategoryItem[]>([]);
+    const [activeExpenseCategoryId, setActiveExpenseCategoryId] = useState<string | null>(null);
     const [monthLabel, setMonthLabel] = useState('');
     const [savingsMetrics, setSavingsMetrics] = useState<ISavingsRateData | null>(null);
     const [spendingTrendData, setSpendingTrendData] = useState<ISpendingTrendData | null>(null);
@@ -217,9 +216,8 @@ export function DashboardShell() {
                 return allItems;
             };
 
-            const [categoryItems, recentResult, monthItems, historyResult, savingsData, trendData] = await Promise.all([
+            const [categoryItems, monthItems, historyResult, savingsData, trendData] = await Promise.all([
                 getCategoriesRequest(),
-                queryTransactionsRequest({ page: 1, limit: 5 }),
                 fetchMonthTransactions(),
                 queryTransactionsRequest({ page: 1, limit: 80 }),
                 getSavingsRateRequest({ month: now.getMonth() + 1, year: now.getFullYear() }),
@@ -230,17 +228,6 @@ export function DashboardShell() {
                 acc[item.id] = item.name;
                 return acc;
             }, {});
-
-            setRecentTransactions(
-                recentResult.items.map((transaction) => ({
-                    id: transaction.id,
-                    amount: transaction.amount,
-                    category: categoryNameMap[transaction.category] || transaction.category,
-                    description: transaction.description,
-                    transactionType: transaction.type,
-                    timestamp: transaction.timestamp,
-                })),
-            );
 
             const recurringGroupMap = historyResult.items
                 .filter((item) => item.type === 'expense')
@@ -345,7 +332,6 @@ export function DashboardShell() {
                 `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
             );
         } catch {
-            setRecentTransactions([]);
             setExpenseCategories([]);
             setSavingsMetrics(null);
             setSpendingTrendData(null);
@@ -561,19 +547,37 @@ export function DashboardShell() {
         };
     }, []);
 
+    useEffect(() => {
+        if (expenseCategories.length === 0) {
+            setActiveExpenseCategoryId(null);
+            return;
+        }
+
+        setActiveExpenseCategoryId((current) => {
+            if (current && expenseCategories.some((item) => item.id === current)) {
+                return current;
+            }
+            return expenseCategories[0].id;
+        });
+    }, [expenseCategories]);
+
     const dashboardContent = (
         <div style={{ display: 'grid', gap: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-                <ExpenseDonutCard monthLabel={monthLabel} categories={expenseCategories} />
+                <ExpenseDonutCard
+                    monthLabel={monthLabel}
+                    categories={expenseCategories}
+                    activeCategoryId={activeExpenseCategoryId}
+                    onActiveCategoryChange={setActiveExpenseCategoryId}
+                />
                 <SavingsRingCard
-                    savingRate={savingsMetrics?.savingsRate ?? 0}
-                    projectedSaving={savingsMetrics?.projectedSaving ?? 0}
-                    avgDailyAllowance={savingsMetrics?.avgDailyAllowance ?? 0}
-                    avgDailyExpense={savingsMetrics?.avgDailyExpense ?? 0}
+                    monthLabel={monthLabel}
+                    categories={expenseCategories}
+                    activeCategoryId={activeExpenseCategoryId}
+                    onActiveCategoryChange={setActiveExpenseCategoryId}
                 />
             </div>
             <SpendingTrendCard data={spendingTrendData} isLoading={isRecurringLoading} />
-            <RecentTransactionsCard transactions={recentTransactions} />
         </div>
     );
 

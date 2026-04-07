@@ -1,105 +1,95 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import { AppCard } from '@/components/common/app-card';
-import { formatCurrencyVND, formatPercent } from '@/lib/formatters';
+import { formatCurrencyVND, formatMonthYear } from '@/lib/formatters';
+import { IExpenseCategoryItem } from '@/types/dashboard';
+import { useMemo } from 'react';
 
 interface ISavingsRingCardProps {
-    savingRate: number;
-    projectedSaving: number;
-    /** Số tiền trung bình mỗi ngày được phép chi để đạt mục tiêu tiết kiệm */
-    avgDailyAllowance: number;
-    /** Trung bình chi tiêu thực tế mỗi ngày tính đến hiện tại */
-    avgDailyExpense: number;
+    monthLabel: string;
+    categories: IExpenseCategoryItem[];
+    activeCategoryId: string | null;
+    onActiveCategoryChange: (categoryId: string | null) => void;
 }
 
-export function SavingsRingCard({ savingRate, projectedSaving, avgDailyAllowance, avgDailyExpense }: ISavingsRingCardProps) {
-    const [animatedRate, setAnimatedRate] = useState(0);
-    const radius = 46;
-    const circumference = 2 * Math.PI * radius;
-    const isGood = savingRate >= 25;
+export function SavingsRingCard({ monthLabel, categories, activeCategoryId, onActiveCategoryChange }: ISavingsRingCardProps) {
+    const sortedCategories = useMemo(
+        () => [...categories].sort((left, right) => right.amount - left.amount),
+        [categories],
+    );
 
-    useEffect(() => {
-        const timer = window.setTimeout(() => setAnimatedRate(savingRate), 120);
-        return () => window.clearTimeout(timer);
-    }, [savingRate]);
-
-    const dashOffset = useMemo(() => circumference - (animatedRate / 100) * circumference, [animatedRate, circumference]);
+    const totalExpense = useMemo(
+        () => sortedCategories.reduce((sum, item) => sum + item.amount, 0),
+        [sortedCategories],
+    );
 
     return (
-        <AppCard strong style={{ padding: 14, minHeight: 248, display: 'grid', alignContent: 'start' }}>
+        <AppCard strong style={{ padding: 14, minHeight: 320, display: 'grid', alignContent: 'start' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                 <div>
-                    <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>Tỷ lệ tiết kiệm</div>
-                    {/* <div style={{ fontSize: 15, fontWeight: 800, marginTop: 3 }}>Sức khỏe tiết kiệm</div> */}
+                    <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>Chi tiêu theo danh mục</div>
+                    <div style={{ marginTop: 3, fontSize: 12.5, fontWeight: 800 }}>{formatCurrencyVND(totalExpense)}</div>
                 </div>
-                <div
-                    style={{
-                        padding: '5px 9px',
-                        borderRadius: 999,
-                        fontSize: 10.5,
-                        fontWeight: 800,
-                        color: isGood ? '#166534' : '#b91c1c',
-                        background: isGood ? 'rgba(34,197,94,0.14)' : 'rgba(239,68,68,0.16)',
-                        border: `1px solid ${isGood ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                    }}
-                >
-                    {isGood ? 'Tốt' : 'Cần tối ưu'}
-                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--accent-text)', fontWeight: 700 }}>{formatMonthYear(monthLabel)}</div>
             </div>
 
-            <div style={{ display: 'grid', placeItems: 'center', gap: 10, marginTop: 12 }}>
-                <div style={{ position: 'relative', width: 118, height: 118 }}>
-                    <svg width="118" height="118" viewBox="0 0 132 132">
-                        <defs>
-                            <linearGradient id="savingsGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" stopColor={isGood ? '#22c55e' : '#ef4444'} />
-                                <stop offset="100%" stopColor={isGood ? '#38bdf8' : '#f97316'} />
-                            </linearGradient>
-                        </defs>
-                        <g transform="translate(66 66) rotate(-90)">
-                            <circle r={radius} fill="transparent" stroke="rgba(148,163,184,0.14)" strokeWidth="12" />
-                            <circle
-                                r={radius}
-                                fill="transparent"
-                                stroke="url(#savingsGradient)"
-                                strokeWidth="12"
-                                strokeLinecap="round"
-                                strokeDasharray={circumference}
-                                strokeDashoffset={dashOffset}
-                                style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.22, 1, 0.36, 1)' }}
+            <div
+                style={{
+                    marginTop: 12,
+                    display: 'grid',
+                    gap: 6,
+                    height: 230,
+                    overflowY: 'auto',
+                    paddingRight: 4,
+                }}
+            >
+                {sortedCategories.length === 0 ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có dữ liệu chi tiêu theo danh mục.</div>
+                ) : null}
+
+                {sortedCategories.map((item) => (
+                    <div
+                        key={item.id}
+                        onMouseEnter={() => onActiveCategoryChange(item.id)}
+                        onFocus={() => onActiveCategoryChange(item.id)}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onActiveCategoryChange(item.id)}
+                        style={{
+                            borderRadius: 8,
+                            border: activeCategoryId === item.id ? '1px solid var(--chip-border)' : '1px solid var(--surface-border)',
+                            background: activeCategoryId === item.id ? 'var(--chip-bg)' : 'var(--surface-soft)',
+                            padding: '4px 8px',
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            gap: 8,
+                            alignItems: 'center',
+                            minHeight: 28,
+                            cursor: 'pointer',
+                            transform: activeCategoryId === item.id ? 'translateY(-1px)' : 'translateY(0)',
+                            boxShadow: activeCategoryId === item.id ? '0 4px 14px color-mix(in srgb, var(--accent) 16%, transparent)' : 'none',
+                            transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease',
+                        }}
+                    >
+                        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                                style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: 999,
+                                    background: item.color,
+                                    flexShrink: 0,
+                                }}
                             />
-                        </g>
-                    </svg>
-                    <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
-                        <div>
-                            <div style={{ fontSize: 23, fontWeight: 900, color: isGood ? '#15803d' : '#dc2626' }}>{formatPercent(animatedRate)}</div>
-                            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Tỷ lệ</div>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {item.label}
+                            </span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 900 }}>{formatCurrencyVND(item.amount)}</div>
                         </div>
                     </div>
-                </div>
-
-                <div style={{ textAlign: 'center', display: 'grid', gap: 6 }}>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.5, fontStyle: 'italic' }}>
-                        Ghi chú: nếu duy trì nhịp chi tiêu này, số tiền tiết kiệm cuối tháng ước tính là:
-                    </div>
-                    <div style={{ fontSize: 20, fontWeight: 900, color: isGood ? '#15803d' : '#dc2626' }}>{formatCurrencyVND(projectedSaving)}</div>
-                </div>
-
-                <div style={{ width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 4 }}>
-                    <div style={{ borderRadius: 10, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '8px 10px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 3 }}>Hạn mức/ngày</div>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)' }}>{formatCurrencyVND(avgDailyAllowance)}</div>
-                    </div>
-                    <div style={{ borderRadius: 10, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '8px 10px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 3 }}>Thực chi/ngày</div>
-                        <div style={{
-                            fontSize: 13,
-                            fontWeight: 800,
-                            color: avgDailyExpense <= avgDailyAllowance || avgDailyAllowance === 0 ? '#15803d' : '#dc2626',
-                        }}>{formatCurrencyVND(avgDailyExpense)}</div>
-                    </div>
-                </div>
+                ))}
             </div>
         </AppCard>
     );
