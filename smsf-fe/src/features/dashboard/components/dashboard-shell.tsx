@@ -116,6 +116,7 @@ export function DashboardShell() {
     const [monthsDataForHeatmap, setMonthsDataForHeatmap] = useState<IMonthData[]>([]);
     const [activeExpenseCategoryId, setActiveExpenseCategoryId] = useState<string | null>(null);
     const [monthLabel, setMonthLabel] = useState('');
+    const [todayExpenseAmount, setTodayExpenseAmount] = useState(0);
     const [savingsMetrics, setSavingsMetrics] = useState<ISavingsRateData | null>(null);
     const [spendingTrendData, setSpendingTrendData] = useState<ISpendingTrendData | null>(null);
     const [initialSetupError, setInitialSetupError] = useState('');
@@ -335,6 +336,14 @@ export function DashboardShell() {
                 return acc;
             }, {});
 
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const endOfToday = startOfToday + DAY_IN_MILLISECONDS - 1;
+            const computedTodayExpense = expenseTransactions
+                .filter((item) => item.timestamp >= startOfToday && item.timestamp <= endOfToday)
+                .reduce((sum, item) => sum + item.amount, 0);
+
+            setTodayExpenseAmount(computedTodayExpense);
+
             setMonthsDataForHeatmap([
                 { month: monthsToFetch[0].month, year: monthsToFetch[0].year, transactions: monthData0Items },
                 { month: monthsToFetch[1].month, year: monthsToFetch[1].year, transactions: monthData1Items },
@@ -361,6 +370,7 @@ export function DashboardShell() {
         } catch {
             setExpenseCategories([]);
             setMonthsDataForHeatmap([]);
+            setTodayExpenseAmount(0);
             setSavingsMetrics(null);
             setSpendingTrendData(null);
         } finally {
@@ -944,14 +954,14 @@ export function DashboardShell() {
                                     </div>
                                 </div>
                                 <div style={{ borderRadius: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', padding: '10px 12px' }}>
-                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Đang chi/ngày</div>
+                                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Đã chi hôm nay</div>
                                     <div
                                         style={{
                                             fontSize: 'clamp(11px, 2.8vw, 14px)',
                                             fontWeight: 900,
                                             marginTop: 4,
                                             color:
-                                                (savingsMetrics?.avgDailyExpense ?? 0) <= (savingsMetrics?.avgDailyAllowance ?? 0) ||
+                                                todayExpenseAmount <= (savingsMetrics?.avgDailyAllowance ?? 0) ||
                                                 (savingsMetrics?.savingsGoal ?? 0) <= 0
                                                     ? '#15803d'
                                                     : '#dc2626',
@@ -960,7 +970,7 @@ export function DashboardShell() {
                                             textOverflow: 'ellipsis',
                                         }}
                                     >
-                                        {formatCurrencyVND(savingsMetrics?.avgDailyExpense ?? 0)}
+                                        {formatCurrencyVND(todayExpenseAmount)}
                                     </div>
                                 </div>
                             </div>

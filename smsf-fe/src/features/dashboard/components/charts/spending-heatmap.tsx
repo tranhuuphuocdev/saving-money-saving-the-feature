@@ -193,8 +193,8 @@ function SingleMonthHeatmap({
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', marginBottom: 2 }}>
                     {formatMonthLabel(month, year)}
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--accent-text)' }}>
-                    {formatCurrencyVND(totalExpense)}
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-text)' }}>
+                    = {formatCurrencyVND(totalExpense)}
                 </div>
             </div>
 
@@ -202,7 +202,7 @@ function SingleMonthHeatmap({
                 style={{
                     border: '0px solid var(--surface-border)',
                     borderRadius: 8,
-                    background: 'rgba(15, 23, 42, 0.5)',
+                    background: 'color-mix(in srgb, var(--surface-softest) 86%, transparent)',
                     padding: 8,
                     display: 'inline-block',
                 }}
@@ -379,7 +379,7 @@ export function SpendingHeatmap({
                 padding: 16,
                 display: 'grid',
                 gap: 12,
-                background: 'linear-gradient(160deg, color-mix(in srgb, var(--card-strong) 88%, #0f172a), var(--card-strong))',
+                background: 'linear-gradient(160deg, color-mix(in srgb, var(--card-strong) 92%, var(--surface-strong)), var(--card-strong))',
             }}
         >
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
