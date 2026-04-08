@@ -18,9 +18,9 @@ import { formatCurrencyVND } from '@/lib/formatters';
 import { useAuth } from '@/providers/auth-provider';
 import { ICalendarTransaction, ICategoryItem, ITransactionQueryParams } from '@/types/calendar';
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 const ACTION_SIDE_PADDING = 6;
-const ACTION_BUTTON_WIDTH = 42;
+const ACTION_BUTTON_WIDTH = 34;
 const ACTION_GAP = 6;
 const ACTION_TRAILING_PADDING = 6;
 const SWIPE_SNAP_TO_EDIT =
@@ -146,6 +146,7 @@ export function TransactionsTab() {
     const [endDateInput, setEndDateInput] = useState('');
 
     const [filters, setFilters] = useState<Omit<ITransactionQueryParams, 'page' | 'limit'>>({});
+    const descriptionDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
     const [editType, setEditType] = useState<'income' | 'expense'>('expense');
     const [editAmount, setEditAmount] = useState('');
@@ -216,8 +217,9 @@ export function TransactionsTab() {
     );
 
     useEffect(() => {
+        setPage(1);
         void fetchTransactions(1, false);
-    }, [fetchTransactions]);
+    }, [filters, fetchTransactions]);
 
     const refreshCategories = useCallback(async () => {
         try {
@@ -232,28 +234,76 @@ export function TransactionsTab() {
         void refreshCategories();
     }, [refreshCategories]);
 
-    const handleApplyFilters = (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        setTopMessage('');
+    const triggerFilters = useCallback(
+        (newCategoryIds?: string[], newDescription?: string, newStartDate?: string, newEndDate?: string) => {
+            setTopMessage('');
+            setPage(1);
 
-        setFilters({
-            categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
-            description: descriptionInput.trim() || undefined,
-            startTime: toStartOfDayTimestamp(startDateInput),
-            endTime: toEndOfDayTimestamp(endDateInput),
-        });
-    };
+            const newFilters = {
+                categoryIds: (newCategoryIds ?? selectedCategoryIds).length > 0 ? (newCategoryIds ?? selectedCategoryIds) : undefined,
+                description: (newDescription ?? descriptionInput).trim() || undefined,
+                startTime: toStartOfDayTimestamp(newStartDate ?? startDateInput),
+                endTime: toEndOfDayTimestamp(newEndDate ?? endDateInput),
+            };
+            setFilters(newFilters);
+        },
+        [selectedCategoryIds, descriptionInput, startDateInput, endDateInput],
+    );
 
-    const handleResetFilters = () => {
+    const handleCategorySelect = useCallback(
+        (categoryIds: string[]) => {
+            setSelectedCategoryIds(categoryIds);
+            triggerFilters(categoryIds, descriptionInput, startDateInput, endDateInput);
+        },
+        [triggerFilters, descriptionInput, startDateInput, endDateInput],
+    );
+
+    const handleDescriptionChange = useCallback(
+        (value: string) => {
+            setDescriptionInput(value);
+
+            if (descriptionDebounceRef.current) {
+                clearTimeout(descriptionDebounceRef.current);
+            }
+
+            descriptionDebounceRef.current = setTimeout(() => {
+                triggerFilters(selectedCategoryIds, value, startDateInput, endDateInput);
+            }, 600);
+        },
+        [triggerFilters, selectedCategoryIds, startDateInput, endDateInput],
+    );
+
+    const handleStartDateChange = useCallback(
+        (date: string) => {
+            setStartDateInput(date);
+            triggerFilters(selectedCategoryIds, descriptionInput, date, endDateInput);
+        },
+        [triggerFilters, selectedCategoryIds, descriptionInput, endDateInput],
+    );
+
+    const handleEndDateChange = useCallback(
+        (date: string) => {
+            setEndDateInput(date);
+            triggerFilters(selectedCategoryIds, descriptionInput, startDateInput, date);
+        },
+        [triggerFilters, selectedCategoryIds, descriptionInput, startDateInput],
+    );
+
+    const handleResetFilters = useCallback(() => {
         setSelectedCategoryIds([]);
         setDescriptionInput('');
         setStartDateInput('');
         setEndDateInput('');
+        setPage(1);
         setFilters({});
         setTopMessage('');
-    };
 
-    const openEditModal = (transaction: ICalendarTransaction) => {
+        if (descriptionDebounceRef.current) {
+            clearTimeout(descriptionDebounceRef.current);
+        }
+    }, []);
+
+    const openEditModal = useCallback((transaction: ICalendarTransaction) => {
         setEditingTransaction(transaction);
         setEditType(transaction.type);
         setEditAmount(String(Math.round(transaction.amount)));
@@ -263,7 +313,7 @@ export function TransactionsTab() {
         setEditDate(formatDateInput(transaction.timestamp));
         setEditError('');
         setSwipedTransactionId(null);
-    };
+    }, []);
 
     const handleDeleteTransaction = async () => {
         if (!deleteTarget) return;
@@ -431,7 +481,7 @@ export function TransactionsTab() {
     return (
         <div style={{ display: 'grid', gap: 12 }}>
             <AppCard strong style={{ padding: 14 }}>
-                <form onSubmit={handleApplyFilters} style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'grid', gap: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 800 }}>Bộ lọc giao dịch</div>
 
                     {/* Category multi-select trigger */}
@@ -488,7 +538,7 @@ export function TransactionsTab() {
                                         <span>{cat.name}</span>
                                         <button
                                             type="button"
-                                            onClick={() => setSelectedCategoryIds((prev) => prev.filter((x) => x !== id))}
+                                            onClick={() => handleCategorySelect(selectedCategoryIds.filter((x) => x !== id))}
                                             style={{ border: 'none', background: 'transparent', color: 'var(--muted)', padding: 0, cursor: 'pointer', lineHeight: 1, display: 'grid', placeItems: 'center' }}
                                         >
                                             <X size={11} />
@@ -502,7 +552,7 @@ export function TransactionsTab() {
                     <input
                         type="text"
                         value={descriptionInput}
-                        onChange={(event) => setDescriptionInput(event.target.value)}
+                        onChange={(event) => handleDescriptionChange(event.target.value)}
                         placeholder="Lọc theo mô tả"
                         style={{
                             padding: '10px 12px',
@@ -517,48 +567,32 @@ export function TransactionsTab() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         <CustomDatePicker
                             value={startDateInput}
-                            onChange={setStartDateInput}
+                            onChange={handleStartDateChange}
                             placeholder="Từ ngày"
                         />
                         <CustomDatePicker
                             value={endDateInput}
-                            onChange={setEndDateInput}
+                            onChange={handleEndDateChange}
                             placeholder="Đến ngày"
                         />
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                        <button
-                            type="button"
-                            onClick={handleResetFilters}
-                            style={{
-                                border: '1px solid var(--surface-border)',
-                                borderRadius: 10,
-                                background: 'transparent',
-                                color: 'var(--foreground)',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                padding: '10px 12px',
-                            }}
-                        >
-                            Xóa lọc
-                        </button>
-                        <button
-                            type="submit"
-                            style={{
-                                border: '1px solid var(--theme-gradient-start)',
-                                borderRadius: 10,
-                                background: 'var(--chip-bg)',
-                                color: 'var(--foreground)',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                padding: '10px 12px',
-                            }}
-                        >
-                            Áp dụng lọc
-                        </button>
-                    </div>
-                </form>
+                    <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        style={{
+                            border: '1px solid var(--surface-border)',
+                            borderRadius: 10,
+                            background: 'transparent',
+                            color: 'var(--foreground)',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            padding: '10px 12px',
+                        }}
+                    >
+                        Xóa lọc
+                    </button>
+                </div>
             </AppCard>
 
             <AppCard strong style={{ padding: 14 }}>
@@ -679,9 +713,10 @@ export function TransactionsTab() {
                                         type="button"
                                         onClick={() => openEditModal(transaction)}
                                         style={{
-                                            width: 42,
+                                            width: 34,
+                                            height: 34,
                                             border: '1px solid rgba(59,130,246,0.35)',
-                                            borderRadius: 10,
+                                            borderRadius: 8,
                                             background: 'rgba(59,130,246,0.14)',
                                             color: '#2563eb',
                                             display: 'grid',
@@ -689,7 +724,7 @@ export function TransactionsTab() {
                                         }}
                                         title="Chỉnh sửa"
                                     >
-                                        <Pencil size={16} />
+                                        <Pencil size={14} />
                                     </button>
                                     <button
                                         type="button"
@@ -699,9 +734,10 @@ export function TransactionsTab() {
                                             setSwipedTransactionId(null);
                                         }}
                                         style={{
-                                            width: 42,
+                                            width: 34,
+                                            height: 34,
                                             border: '1px solid rgba(239,68,68,0.35)',
-                                            borderRadius: 10,
+                                            borderRadius: 8,
                                             background: 'rgba(239,68,68,0.14)',
                                             color: '#dc2626',
                                             display: 'grid',
@@ -710,7 +746,7 @@ export function TransactionsTab() {
                                         }}
                                         title="Xóa"
                                     >
-                                        {deletingId === transaction.id ? <LoaderCircle size={16} className="spin" /> : <Trash2 size={16} />}
+                                        {deletingId === transaction.id ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />}
                                     </button>
                                 </div>
 
@@ -731,52 +767,65 @@ export function TransactionsTab() {
                                     style={{
                                         position: 'relative',
                                         zIndex: 1,
-                                        borderRadius: 14,
+                                        borderRadius: 9,
                                         border: '1px solid var(--surface-border)',
-                                        background: 'var(--surface-base)',
-                                        padding: 9,
+                                        background: 'linear-gradient(135deg, color-mix(in srgb, var(--surface-soft) 92%, white), var(--surface-soft))',
+                                        padding: '8px 9px',
                                         display: 'grid',
+                                        gridTemplateColumns: 'auto 1fr auto',
                                         gap: 8,
+                                        alignItems: 'center',
                                         transform: `translateX(${translateX}px)`,
                                         transition: isDraggingThis ? 'none' : 'transform 180ms ease',
                                         touchAction: 'pan-y',
                                         cursor: isDraggingThis ? 'grabbing' : 'pointer',
                                     }}
                                 >
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                            <span
+                                    <div
+                                            style={{
+                                                width: 28,
+                                                height: 28,
+                                                borderRadius: 8,
+                                                border: '1px solid var(--surface-border)',
+                                                background: 'var(--surface-base)',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                fontSize: 14,
+                                            }}
+                                        >
+                                            {categoryIcon}
+                                        </div>
+
+                                        <div>
+                                            <div
+                                                title={transaction.description || (categoryNameMap[transaction.category] || transaction.category)}
                                                 style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 5,
-                                                    borderRadius: 999,
-                                                    padding: '4px 8px',
-                                                    background: 'var(--surface-soft)',
-                                                    border: '1px solid var(--surface-border)',
-                                                    color: isExpense ? '#f97316' : '#16a34a',
-                                                    fontSize: 11,
-                                                    fontWeight: 800,
-                                                    flexShrink: 0,
+                                                    fontSize: 11.6,
+                                                    fontWeight: 700,
+                                                    lineHeight: 1.35,
+                                                    whiteSpace: 'nowrap',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    maxWidth: '100%',
                                                 }}
                                             >
-                                                <span>{categoryIcon}</span>
-                                                {categoryNameMap[transaction.category] || transaction.category}
-                                            </span>
-                                            <span style={{ fontSize: 14, fontWeight: 900, color: isExpense ? '#f97316' : '#16a34a', whiteSpace: 'nowrap' }}>
-                                                {isExpense ? '-' : '+'}{formatCurrencyVND(transaction.amount)}
-                                            </span>
+                                                {transaction.description || (categoryNameMap[transaction.category] || transaction.category)}
+                                            </div>
+                                            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
+                                                {categoryNameMap[transaction.category] || transaction.category} • {formatFullDateTime(transaction.timestamp)}
+                                            </div>
                                         </div>
-                                        <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                            {formatFullDateTime(transaction.timestamp)}
-                                        </span>
-                                    </div>
 
-                                    {transaction.description ? (
-                                        <div style={{ fontSize: 13, color: 'var(--foreground)', lineHeight: 1.5, marginTop: 2 }}>
-                                            {transaction.description}
+                                        <div
+                                            style={{
+                                                fontSize: 11.8,
+                                                fontWeight: 800,
+                                                color: isExpense ? '#f97316' : '#16a34a',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {isExpense ? '-' : '+'}{formatCurrencyVND(transaction.amount)}
                                         </div>
-                                    ) : null}
 
                                     {/* {transaction.balanceBefore !== undefined && transaction.balanceAfter !== undefined ? (
                                         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
@@ -1284,7 +1333,7 @@ export function TransactionsTab() {
                                   <button
                                       type="button"
                                       onClick={() => {
-                                          setSelectedCategoryIds(pendingCategoryIds);
+                                          handleCategorySelect(pendingCategoryIds);
                                           setIsCategoryPickerOpen(false);
                                       }}
                                       style={{
