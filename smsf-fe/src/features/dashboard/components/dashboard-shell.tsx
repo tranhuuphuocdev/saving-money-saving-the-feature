@@ -13,6 +13,7 @@ import { FriendsTab } from '@/features/dashboard/components/friends-tab';
 import { InitialWalletSetupModal } from '@/features/dashboard/components/initial-wallet-setup-modal';
 import { SavingsRingCard } from '@/features/dashboard/components/charts/savings-ring-card';
 import { SpendingTrendCard } from '@/features/dashboard/components/charts/spending-trend-card';
+import { SpendingHeatmap } from '@/features/dashboard/components/charts/spending-heatmap';
 import { WalletHistoryTab } from '@/features/dashboard/components/wallet-history-tab';
 import { CalendarShell } from '@/features/calendar/components/calendar-shell';
 import { TransactionsTab } from '@/features/dashboard/components/transactions-tab';
@@ -45,11 +46,17 @@ import {
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 import { useTheme } from '@/providers/theme-provider';
-import { ICategoryItem } from '@/types/calendar';
+import { ICalendarTransaction, ICategoryItem } from '@/types/calendar';
 import { IExpenseCategoryItem, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
 import { IConversation, IDirectMessage, IFriendRequest } from '@/types/messages';
 import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem } from '@/types/notification';
 import { ISharedFundInviteItem } from '@/types/shared-fund';
+
+interface IMonthData {
+    month: number;
+    year: number;
+    transactions: ICalendarTransaction[];
+}
 
 function PlaceholderPanel({ title, description }: { title: string; description: string }) {
     return (
@@ -106,6 +113,7 @@ export function DashboardShell() {
     const [isFirstCalendarLoading, setIsFirstCalendarLoading] = useState(false);
     const [isCalendarVisible, setIsCalendarVisible] = useState(true);
     const [expenseCategories, setExpenseCategories] = useState<IExpenseCategoryItem[]>([]);
+    const [monthsDataForHeatmap, setMonthsDataForHeatmap] = useState<IMonthData[]>([]);
     const [activeExpenseCategoryId, setActiveExpenseCategoryId] = useState<string | null>(null);
     const [monthLabel, setMonthLabel] = useState('');
     const [savingsMetrics, setSavingsMetrics] = useState<ISavingsRateData | null>(null);
@@ -191,11 +199,12 @@ export function DashboardShell() {
     const fetchRecentTransactions = useCallback(async () => {
         try {
             const now = new Date();
-            const from = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-            const to = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() - 1;
             setIsRecurringLoading(true);
 
-            const fetchMonthTransactions = async () => {
+            const fetchMonthTransactionsByMonthYear = async (month: number, year: number) => {
+                const from = new Date(year, month - 1, 1).getTime();
+                const to = new Date(year, month, 1).getTime() - 1;
+
                 let page = 1;
                 let hasMore = true;
                 const allItems: Awaited<ReturnType<typeof queryTransactionsRequest>>['items'] = [];
@@ -216,13 +225,25 @@ export function DashboardShell() {
                 return allItems;
             };
 
-            const [categoryItems, monthItems, historyResult, savingsData, trendData] = await Promise.all([
+            const currentMonth = now.getMonth() + 1;
+            const currentYear = now.getFullYear();
+            const monthsToFetch = [
+                { month: currentMonth === 1 ? 11 : currentMonth - 2, year: currentMonth <= 2 ? currentYear - 1 : currentYear },
+                { month: currentMonth === 1 ? 12 : currentMonth - 1, year: currentMonth === 1 ? currentYear - 1 : currentYear },
+                { month: currentMonth, year: currentYear },
+            ];
+
+            const [categoryItems, monthData0Items, monthData1Items, monthData2Items, historyResult, savingsData, trendData] = await Promise.all([
                 getCategoriesRequest(),
-                fetchMonthTransactions(),
+                fetchMonthTransactionsByMonthYear(monthsToFetch[0].month, monthsToFetch[0].year),
+                fetchMonthTransactionsByMonthYear(monthsToFetch[1].month, monthsToFetch[1].year),
+                fetchMonthTransactionsByMonthYear(monthsToFetch[2].month, monthsToFetch[2].year),
                 queryTransactionsRequest({ page: 1, limit: 80 }),
-                getSavingsRateRequest({ month: now.getMonth() + 1, year: now.getFullYear() }),
-                getSpendingTrendRequest({ month: now.getMonth() + 1, year: now.getFullYear() }),
+                getSavingsRateRequest({ month: currentMonth, year: currentYear }),
+                getSpendingTrendRequest({ month: currentMonth, year: currentYear }),
             ]);
+
+            const monthItems = monthData2Items;
 
             const categoryNameMap = categoryItems.reduce<Record<string, string>>((acc, item) => {
                 acc[item.id] = item.name;
@@ -314,6 +335,12 @@ export function DashboardShell() {
                 return acc;
             }, {});
 
+            setMonthsDataForHeatmap([
+                { month: monthsToFetch[0].month, year: monthsToFetch[0].year, transactions: monthData0Items },
+                { month: monthsToFetch[1].month, year: monthsToFetch[1].year, transactions: monthData1Items },
+                { month: monthsToFetch[2].month, year: monthsToFetch[2].year, transactions: monthData2Items },
+            ]);
+
             const computedCategories = Object.entries(expenseByCategory)
                 .sort((a, b) => b[1] - a[1])
                 .map(([categoryId, amount], index) => ({
@@ -333,6 +360,7 @@ export function DashboardShell() {
             );
         } catch {
             setExpenseCategories([]);
+            setMonthsDataForHeatmap([]);
             setSavingsMetrics(null);
             setSpendingTrendData(null);
         } finally {
@@ -578,6 +606,11 @@ export function DashboardShell() {
                 />
             </div>
             <SpendingTrendCard data={spendingTrendData} isLoading={isRecurringLoading} />
+            <SpendingHeatmap
+                monthsData={monthsDataForHeatmap}
+                isLoading={isRecurringLoading}
+                title="Nhịp độ chi tiêu"
+            />
         </div>
     );
 
