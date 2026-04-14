@@ -1,0 +1,33 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: service-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: service-logs
+          __path__: /var/log/services/*/*.log
+    pipeline_stages:
+      - regex:
+          source: filename
+          expression: '.*/(?P<service>[^/]+)/[^/]+\.log'
+      - json:
+          expressions:
+            level: level
+            log_type: log_type
+      - labels:
+          service:
+          service_name: service
+          level:
+          log_type:
+      - output:
+          source: msg
