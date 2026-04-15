@@ -50,7 +50,6 @@ The project is split into:
 - **Framework**: Express 5 + TypeScript
 - **Data Store**: Elasticsearch 8
 - **Auth**: JSON Web Token (`jsonwebtoken`)
-- **Observability**: OpenTelemetry + Jaeger
 - **Dev tools**: Nodemon, ts-node
 
 ### Frontend (`smsf-fe`)
@@ -62,7 +61,7 @@ The project is split into:
 
 ### Infrastructure
 - Docker / Docker Compose
-- Elasticsearch + Kibana + Jaeger
+- PostgreSQL + Grafana + Loki + Prometheus
 
 ---
 
@@ -72,7 +71,7 @@ The project is split into:
 saving-money-saving-the-feature/
 ├─ smsf-be/              # Backend API service
 │  ├─ src/
-│  └─ docker-compose.yml # Elasticsearch + Kibana + Jaeger
+│  └─ prisma/
 ├─ smsf-fe/              # Next.js frontend
 │  ├─ app/
 │  └─ src/
@@ -88,17 +87,19 @@ saving-money-saving-the-feature/
 - npm
 - Docker Desktop (recommended for infra)
 
-### 2) Start infrastructure (Elasticsearch/Kibana/Jaeger)
+### 2) Start infrastructure
 
 ```bash
-cd smsf-be
-docker compose up -d
+docker compose -f docker-compose.db.yaml up -d
+docker compose -f docker-compose.monitor.yaml up -d
 ```
 
 Default ports:
-- Elasticsearch: `9201`
-- Kibana: `5603`
-- Jaeger UI: `16686`
+- PostgreSQL: `5432`
+- Grafana: `3030`
+- Loki: `3100`
+- Prometheus: `9090`
+- Pushgateway: `9091`
 
 ### 3) Backend setup
 
@@ -107,7 +108,7 @@ cd smsf-be
 npm install
 ```
 
-Create `.env` in `smsf-be` (example):
+Create `.env` in `smsf-be` from `smsf-be/.env.dist`:
 
 ```env
 PORT=3000
@@ -122,13 +123,15 @@ JWT_EXPIRES_IN=1d
 JWT_REFRESH_SECRET=replace_me_too
 JWT_REFRESH_EXPIRES_IN=7d
 
+CORS_ALLOWED_ORIGINS=http://localhost:3033
+AUTH_COOKIE_SAME_SITE=lax
+AUTH_COOKIE_SECURE=false
+AUTH_COOKIE_DOMAIN=
+
+GOOGLE_CLIENT_IDS=your_google_web_client_id.apps.googleusercontent.com
+
 ES_URL=http://localhost:9201
 ES_NAME_PREFIX=
-
-TRACING_ENABLED=true
-OTEL_SERVICE_NAME=smsf-be
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
-TRACING_DEBUG=false
 ```
 
 Run backend:
@@ -164,6 +167,7 @@ Create `.env.local` in `smsf-fe`:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api/v1
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_web_client_id.apps.googleusercontent.com
 ```
 
 Run frontend:
@@ -173,6 +177,45 @@ npm run dev
 ```
 
 Frontend URL: `http://localhost:3033`
+
+### Google Login Setup
+
+Current implementation uses Google Identity Services on the frontend and verifies the returned ID token on the backend.
+
+Required env values:
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID`: Google Web application client ID used by the Next.js login page.
+- `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_IDS`: Google Web application client ID(s) accepted by the backend token verifier. Use `GOOGLE_CLIENT_IDS` if you want to allow multiple environments, separated by commas.
+
+You do not need `GOOGLE_CLIENT_SECRET` for the current login flow because the frontend receives an ID token directly from Google and the backend only verifies that token.
+
+Step by step to get the Google client ID:
+1. Open Google Cloud Console.
+2. Select or create a project for this app.
+3. Go to APIs & Services.
+4. Open OAuth consent screen.
+5. Configure the app name, support email, and required scopes.
+6. Add test users if the app is still in testing mode.
+7. Go to Credentials.
+8. Click Create Credentials.
+9. Choose OAuth client ID.
+10. Select Web application.
+11. Add Authorized JavaScript origins for each frontend origin.
+12. Add your local frontend origin, for example `http://localhost:3033`.
+13. Add your production frontend origin, for example `https://your-domain.com`.
+14. Save and copy the generated Client ID.
+15. Put that value into `smsf-fe/.env.local` as `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
+16. Put the same value into `smsf-be/.env` as `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_IDS`.
+
+Recommended origin checklist:
+- Local frontend: `http://localhost:3033`
+- Production frontend: your exact HTTPS domain
+
+If you deploy backend and frontend on different origins, also ensure these app settings are correct:
+- `CORS_ALLOWED_ORIGINS` includes the frontend origin.
+- `AUTH_COOKIE_SAME_SITE` and `AUTH_COOKIE_SECURE` match your deployment mode.
+- `AUTH_COOKIE_DOMAIN` is set only when you intentionally share cookies across subdomains.
+
+If the database already exists, run the SQL in `smsf-be/prisma/manual-migrations/20260330_google_auth_identity.sql` before deploying the new Google auth flow.
 
 ---
 

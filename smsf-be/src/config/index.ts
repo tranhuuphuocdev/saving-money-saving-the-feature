@@ -1,3 +1,4 @@
+import os from "os";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -81,7 +82,23 @@ const config = {
         publicBaseUrl: process.env.R2_PUBLIC_BASE_URL || "",
         region: process.env.R2_REGION || "auto",
         enabled: parseBoolean(process.env.R2_ENABLED, false),
-    }
+    },
+    observability: {
+        logDir: process.env.LOG_DIR || "/var/log/services",
+        enableFileLog: parseBoolean(process.env.ENABLE_FILE_LOG, true),
+        metrics: {
+            pushgateway: {
+                enabled: parseBoolean(process.env.METRICS_PUSHGATEWAY_ENABLED, true),
+                url: process.env.PUSHGATEWAY_URL || "http://127.0.0.1:9091",
+                jobName: process.env.PUSHGATEWAY_JOB_NAME || "smsf-be",
+                instance:
+                    process.env.PUSHGATEWAY_INSTANCE
+                    || `${os.hostname()}:${Number(process.env.PORT) || 3000}`,
+                intervalMs: Math.max(Number(process.env.METRICS_PUSH_INTERVAL_MS) || 15000, 5000),
+                timeoutMs: Math.max(Number(process.env.METRICS_PUSH_TIMEOUT_MS) || 5000, 1000),
+            },
+        },
+    },
 };
 
 export default config;

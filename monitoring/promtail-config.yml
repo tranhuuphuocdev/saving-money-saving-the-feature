@@ -16,6 +16,11 @@ scrape_configs:
         labels:
           job: service-logs
           __path__: /var/log/services/*/*.log
+      - targets:
+          - localhost
+        labels:
+          job: service-logs
+          __path__: /var/log/services/*.log
     pipeline_stages:
       - regex:
           source: filename

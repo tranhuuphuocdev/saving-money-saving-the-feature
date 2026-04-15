@@ -1,5 +1,6 @@
 import config from "./config";
 import { startNotificationCron, startNotificationTestCron } from "./jobs/notification.cron";
+import { startBackendMetricsPush } from "./monitoring/pushgateway-metrics.service";
 import { createServer } from "http";
 import { Server } from "socket.io";
 
@@ -23,6 +24,7 @@ async function bootstrap() {
 
     httpServer.listen(PORT, () => {
         void startNotificationCron();
+        void startBackendMetricsPush();
         // startNotificationTestCron();
         console.log(`
 ========================================
