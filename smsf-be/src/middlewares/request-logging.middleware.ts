@@ -11,9 +11,9 @@ const requestLoggingMiddleware = (
 
     res.on("finish", () => {
         logger.logInfo("HTTP request completed", buildRequestContext(req, {
-            statusCode: res.statusCode,
-            durationMs: Date.now() - startedAt,
-            contentLength: res.getHeader("content-length") ?? undefined,
+            status_code: res.statusCode,
+            duration_ms: Date.now() - startedAt,
+            content_length: res.getHeader("content-length") ?? undefined,
         }));
     });
 

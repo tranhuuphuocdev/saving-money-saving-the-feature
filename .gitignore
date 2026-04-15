@@ -60,7 +60,6 @@ pnpm-debug.log*
 *.swo
 
 monitor-configs
-docker-compose*
-
+docker-compose.*
 .agent/
 todo.md

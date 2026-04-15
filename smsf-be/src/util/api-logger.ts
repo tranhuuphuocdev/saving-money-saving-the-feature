@@ -24,7 +24,7 @@ const buildRequestContext = (
     routePath: req.route?.path,
     userId: String(req.user?.id || "").trim() || undefined,
     username: String(req.user?.username || "").trim() || undefined,
-    ip: req.ip,
+    remote_addr: req.ip,
     params: Object.keys(req.params || {}).length > 0 ? req.params : undefined,
     query: Object.keys(req.query || {}).length > 0 ? req.query : undefined,
     bodyKeys:
@@ -57,6 +57,14 @@ const logApiInfo = (
     logger.logInfo(message, buildRequestContext(req, meta));
 };
 
+const logApiDebug = (
+    req: Request,
+    message: string,
+    meta?: TypeApiLogMeta,
+): void => {
+    logger.logDebug(message, buildRequestContext(req, meta));
+};
+
 const logApiWarn = (
     req: Request,
     message: string,
@@ -81,6 +89,7 @@ export {
     buildRequestContext,
     getRequestId,
     logApiInfo,
+    logApiDebug,
     logApiWarn,
     logApiError,
 };

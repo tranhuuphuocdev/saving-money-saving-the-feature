@@ -10,7 +10,7 @@ import {
     updateWalletBalanceForUser,
     updateWalletNameForUser,
 } from "../services/wallet.service";
-import { logApiError, logApiInfo, logApiWarn } from "../util/api-logger";
+import { logApiError, logApiDebug, logApiWarn } from "../util/api-logger";
 
 const getWallets = async (req: Request, res: Response): Promise<Response> => {
     const userId = String(req.user?.id || "").trim();
@@ -25,7 +25,7 @@ const getWallets = async (req: Request, res: Response): Promise<Response> => {
 
     const walletSummary = await getWalletSummary(userId);
 
-    logApiInfo(req, "Wallet summary loaded", {
+    logApiDebug(req, "Wallet summary loaded", {
         walletCount: walletSummary.wallets.length,
         totalAmount: walletSummary.totalAmount,
         requiresInitialSetup: walletSummary.requiresInitialSetup,
@@ -55,7 +55,7 @@ const createWallet = async (req: Request, res: Response): Promise<Response> => {
             balance: req.body?.balance,
         });
 
-        logApiInfo(req, "Wallet created", {
+        logApiDebug(req, "Wallet created", {
             walletId: wallet.id,
             walletType: wallet.type,
             balance: wallet.balance,
@@ -106,7 +106,7 @@ const initializeWallets = async (req: Request, res: Response): Promise<Response>
             wallets: req.body?.wallets,
         });
 
-        logApiInfo(req, "Initial wallet setup completed", {
+        logApiDebug(req, "Initial wallet setup completed", {
             walletCount: summary.wallets.length,
             totalAmount: summary.totalAmount,
         });
@@ -189,7 +189,7 @@ const patchWallet = async (req: Request, res: Response): Promise<Response> => {
             wallet = await setWalletActiveForUser(userId, walletId, req.body.isActive);
         }
 
-        logApiInfo(req, "Wallet updated", {
+        logApiDebug(req, "Wallet updated", {
             walletId,
             isActive: hasIsActive ? req.body.isActive : undefined,
             walletName: hasName ? String(req.body.name || "").trim() || undefined : undefined,
@@ -231,7 +231,7 @@ const getWalletLogs = async (req: Request, res: Response): Promise<Response> => 
 
     try {
         const result = await getWalletLogsForUser(userId, walletId, page, limit, startTime, endTime);
-        logApiInfo(req, "Wallet logs loaded", {
+        logApiDebug(req, "Wallet logs loaded", {
             walletId,
             page,
             limit,
@@ -280,7 +280,7 @@ const reorderWallet = async (req: Request, res: Response): Promise<Response> => 
 
     try {
         await reorderWalletForUser(userId, walletId, orderIndex);
-        logApiInfo(req, "Wallet reordered", {
+        logApiDebug(req, "Wallet reordered", {
             walletId,
             orderIndex,
         });
@@ -339,7 +339,7 @@ const transferWalletBalance = async (req: Request, res: Response): Promise<Respo
         });
         const summary = await getWalletSummary(userId);
 
-        logApiInfo(req, "Wallet balance transferred", {
+        logApiDebug(req, "Wallet balance transferred", {
             fromWalletId,
             toWalletId,
             amount,
@@ -399,7 +399,7 @@ const updateWalletBalance = async (req: Request, res: Response): Promise<Respons
         const wallet = await updateWalletBalanceForUser(userId, walletId, balance, description);
         const summary = await getWalletSummary(userId);
 
-        logApiInfo(req, "Wallet balance updated", {
+        logApiDebug(req, "Wallet balance updated", {
             walletId,
             balance,
         });

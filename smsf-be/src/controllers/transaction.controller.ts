@@ -24,7 +24,7 @@ import { getWalletSummary } from "../services/wallet.service";
 import { emitToUser } from "../lib/socket";
 import { prisma } from "../lib/prisma";
 import { listSharedFundMemberIds } from "../services/shared-fund.service";
-import { logApiError, logApiInfo, logApiWarn } from "../util/api-logger";
+import { logApiError, logApiDebug, logApiWarn } from "../util/api-logger";
 
 const notifySharedFundActivity = async (payload: {
     walletId: string;
@@ -206,7 +206,7 @@ const getTransactions = async (req: Request, res: Response): Promise<Response> =
 
     const transactions = await listTransactionsByMonth(userId, month, year);
 
-    logApiInfo(req, "Transactions loaded by month", {
+    logApiDebug(req, "Transactions loaded by month", {
         month,
         year,
         itemCount: transactions.length,
@@ -254,7 +254,7 @@ const queryTransactions = async (
         endTime: query.endTime,
     });
 
-    logApiInfo(req, "Transactions queried", {
+    logApiDebug(req, "Transactions queried", {
         page: result.page,
         limit: result.limit,
         total: result.total,
@@ -320,7 +320,7 @@ const createTransaction = async (
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
-        logApiInfo(req, "Transaction created", {
+        logApiDebug(req, "Transaction created", {
             transactionId: result.transaction.id,
             walletId: result.transaction.walletId,
             amount: result.transaction.amount,
@@ -392,7 +392,7 @@ const createTransactionsBulk = async (
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
-        logApiInfo(req, "Bulk transactions created", {
+        logApiDebug(req, "Bulk transactions created", {
             createdCount: result.transactions.length,
             walletCount: walletSummary.wallets.length,
             totalAmount: walletSummary.totalAmount,
@@ -478,7 +478,7 @@ const updateTransaction = async (
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
-        logApiInfo(req, "Transaction updated", {
+        logApiDebug(req, "Transaction updated", {
             transactionId: result.transaction.id,
             walletId: result.transaction.walletId,
             amount: result.transaction.amount,
@@ -547,7 +547,7 @@ const removeTransaction = async (
         const walletSummary = await getWalletSummary(userId);
         invalidateSavingsCacheByUser(userId);
 
-        logApiInfo(req, "Transaction deleted", {
+        logApiDebug(req, "Transaction deleted", {
             transactionId: result.deletedTransactionId,
             walletId: result.walletId,
             updatedWalletBalance: result.updatedWalletBalance,
@@ -627,7 +627,7 @@ const getSavingsRate = async (
                       },
                   );
 
-        logApiInfo(req, "Savings rate loaded", {
+        logApiDebug(req, "Savings rate loaded", {
             month,
             year,
             usedQuerySavingsGoal: querySavingsGoal !== undefined,
@@ -674,7 +674,7 @@ const getSpendingTrend = async (
 
     try {
         const trend = await getMonthlySpendingTrendForUser(userId, month, year);
-        logApiInfo(req, "Spending trend loaded", {
+        logApiDebug(req, "Spending trend loaded", {
             month,
             year,
             pointCount: trend.points.length,

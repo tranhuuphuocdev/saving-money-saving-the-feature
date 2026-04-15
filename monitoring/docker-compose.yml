@@ -1,0 +1,114 @@
+services:
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: loki
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks:
+      - rampo-monitor
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: promtail
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      - ../smsf-be/logs:/var/log/services/smsf-be:ro
+      - promtail_positions:/tmp
+    networks:
+      - rampo-monitor
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - rampo-monitor
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node-exporter
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+
+  pushgateway:
+    image: prom/pushgateway:v1.10.0
+    container_name: pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - rampo-monitor
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    container_name: grafana
+    depends_on:
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: rampo
+      GF_SECURITY_ADMIN_PASSWORD: yoimPhx0710!@
+    ports:
+      - "4000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - rampo-monitor
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    command:
+      - "--docker_only=true"
+      - "--store_container_labels=true"
+      - "--housekeeping_interval=10s"
+      - "--max_housekeeping_interval=15s"
+      - "--global_housekeeping_interval=30s"
+      - "--disable_metrics=referenced_memory,cpu_topology,resctrl,udp,advtcp,hugetlb,sched,percpu,process"
+    networks:
+      - rampo-monitor
+
+volumes:
+  loki_data:
+  promtail_positions:
+  grafana_data:
+  prometheus_data:
+
+networks:
+  rampo-monitor:
+    driver: bridge

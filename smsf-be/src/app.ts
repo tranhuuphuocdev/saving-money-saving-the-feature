@@ -4,8 +4,9 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import config from "./config";
 import routes from "./routes";
+import prometheusRegistry from "./monitoring/prometheus-registry";
 import logger from "./util/logger";
-import { errorHandler, requestLoggingMiddleware } from "./middlewares";
+import { errorHandler, httpMetricsMiddleware, requestLoggingMiddleware } from "./middlewares";
 
 const app = express();
 
@@ -42,7 +43,13 @@ app.use(
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(httpMetricsMiddleware);
 app.use(requestLoggingMiddleware);
+
+app.get("/metrics", async (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", prometheusRegistry.getContentType());
+    res.send(await prometheusRegistry.getMetrics());
+});
 
 // --- Routes ---
 app.use("/api", routes);
