@@ -7,6 +7,7 @@ import {
 	logout,
 	register,
 	refreshToken,
+	restoreAccountData,
 	uploadProfileAvatar,
 	updateProfile,
 } from "../../controllers/auth.controller";
@@ -35,6 +36,7 @@ router.post("/refresh", authLimiter, refreshToken);
 router.get("/profile", authMiddleware, getProfile);
 router.patch("/profile", authMiddleware, updateProfile);
 router.post("/profile/avatar", authLimiter, authMiddleware, avatarUpload.single("avatar"), uploadProfileAvatar);
+router.post("/profile/restore", authLimiter, authMiddleware, restoreAccountData);
 router.post("/logout", authLimiter, authMiddleware, logout);
 
 export default router;

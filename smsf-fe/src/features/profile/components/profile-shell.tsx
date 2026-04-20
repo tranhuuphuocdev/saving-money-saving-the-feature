@@ -1,6 +1,6 @@
 'use client';
 
-import { Camera, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, History, ImageUp, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, History, ImageUp, LoaderCircle, MessageCircle, UserRound, WalletCards } from 'lucide-react';
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
@@ -22,6 +22,7 @@ import {
     updateWalletBalanceRequest,
 } from '@/lib/calendar/api';
 import { getWalletLogLabel, isWalletLogCredit } from '@/lib/wallet-log-label';
+import { restoreAccountDataRequest } from '@/lib/auth/api';
 import { useBalanceVisible } from '@/lib/ui/use-balance-visible';
 import { useAuth } from '@/providers/auth-provider';
 import { TypeDashboardTab } from '@/types/dashboard';
@@ -75,6 +76,10 @@ export function ProfileShell() {
     const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
     const [cropImageUrl, setCropImageUrl] = useState('');
     const [isAvatarUploading, setIsAvatarUploading] = useState(false);
+    const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
+    const [restoreCountdown, setRestoreCountdown] = useState(5);
+    const [isRestoringAccountData, setIsRestoringAccountData] = useState(false);
+    const [restoreErrorMessage, setRestoreErrorMessage] = useState('');
 
     const [togglingWalletId, setTogglingWalletId] = useState<string | null>(null);
     const [draggingWalletIndex, setDraggingWalletIndex] = useState<number | null>(null);
@@ -136,6 +141,27 @@ export function ProfileShell() {
             }
         };
     }, [cropImageUrl]);
+
+    useEffect(() => {
+        if (!isRestoreConfirmOpen || isRestoringAccountData) {
+            return;
+        }
+
+        setRestoreCountdown(5);
+        const timer = window.setInterval(() => {
+            setRestoreCountdown((previous) => {
+                if (previous <= 1) {
+                    window.clearInterval(timer);
+                    return 0;
+                }
+                return previous - 1;
+            });
+        }, 1000);
+
+        return () => {
+            window.clearInterval(timer);
+        };
+    }, [isRestoreConfirmOpen, isRestoringAccountData]);
 
     const hasTelegramId = useMemo(() => Boolean((user?.telegramChatId || '').trim()), [user?.telegramChatId]);
 
@@ -309,6 +335,45 @@ export function ProfileShell() {
             setIsAvatarUploading(false);
         }
     }, [closeCropModal, refreshProfile, uploadAvatar]);
+
+    const openRestoreModal = useCallback(() => {
+        setRestoreErrorMessage('');
+        setIsRestoreConfirmOpen(true);
+    }, []);
+
+    const closeRestoreModal = useCallback(() => {
+        if (isRestoringAccountData) {
+            return;
+        }
+
+        setIsRestoreConfirmOpen(false);
+        setRestoreErrorMessage('');
+    }, [isRestoringAccountData]);
+
+    const handleRestoreAccountData = useCallback(async () => {
+        setIsRestoringAccountData(true);
+        setRestoreErrorMessage('');
+        setErrorMessage('');
+        setSuccessMessage('');
+        setWalletErrorMessage('');
+        setWalletSuccessMessage('');
+
+        try {
+            await restoreAccountDataRequest();
+            await refreshWallets();
+            setExpandedWalletId(null);
+            setWalletLogsMap({});
+            setIsRestoreConfirmOpen(false);
+            setSuccessMessage('Đã khôi phục dữ liệu tài khoản. Toàn bộ ví cá nhân đã về 0 và lịch sử dữ liệu đã được dọn sạch.');
+        } catch (error) {
+            const responseMessage =
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                'Khôi phục dữ liệu tài khoản thất bại.';
+            setRestoreErrorMessage(responseMessage);
+        } finally {
+            setIsRestoringAccountData(false);
+        }
+    }, [refreshWallets]);
 
     const handleSaveProfile = async () => {
         const nextDisplayName = displayName.trim();
@@ -1107,12 +1172,120 @@ export function ProfileShell() {
                     )}
                 </AppCard>
 
+                <AppCard strong style={{ padding: 16, display: 'grid', gap: 10, border: '1px solid color-mix(in srgb, #ef4444 30%, var(--surface-border))', background: 'linear-gradient(180deg, color-mix(in srgb, #ef4444 8%, var(--surface-strong)), var(--surface-soft))' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#dc2626' }}>
+                        <AlertTriangle size={16} />
+                        <span style={{ fontSize: 13, fontWeight: 800 }}>Khôi phục tài khoản</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+                        Hành động này sẽ đưa số dư ví cá nhân về 0 và xóa toàn bộ giao dịch, thông báo, ngân sách và lịch sử ví cá nhân của bạn.
+                    </div>
+                    <button
+                        type="button"
+                        onClick={openRestoreModal}
+                        style={{
+                            minHeight: 42,
+                            borderRadius: 12,
+                            border: '1px solid color-mix(in srgb, #ef4444 45%, var(--surface-border))',
+                            background: 'color-mix(in srgb, #ef4444 14%, var(--surface-strong))',
+                            color: '#dc2626',
+                            fontWeight: 800,
+                        }}
+                    >
+                        Khôi phục dữ liệu tài khoản
+                    </button>
+                </AppCard>
+
                     </>
                 ) : null}
 
                 {activeProfileTab === 'funds' ? <SharedFundCard /> : null}
             </div>
         </main>
+        {isRestoreConfirmOpen ? (
+            <div
+                role="dialog"
+                aria-modal="true"
+                onClick={closeRestoreModal}
+                style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 90,
+                    background: 'rgba(2, 6, 23, 0.58)',
+                    backdropFilter: 'blur(2px)',
+                    display: 'grid',
+                    placeItems: 'center',
+                    padding: 16,
+                }}
+            >
+                <div
+                    onClick={(event) => event.stopPropagation()}
+                    style={{
+                        width: 'min(460px, 100%)',
+                        borderRadius: 16,
+                        border: '1px solid color-mix(in srgb, #ef4444 32%, var(--surface-border))',
+                        background: 'var(--surface-strong)',
+                        boxShadow: '0 24px 60px rgba(2, 6, 23, 0.35)',
+                        padding: 16,
+                        display: 'grid',
+                        gap: 12,
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#dc2626' }}>
+                        <AlertTriangle size={18} />
+                        <div style={{ fontSize: 15, fontWeight: 900 }}>Xác nhận khôi phục tài khoản</div>
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65 }}>
+                        Bạn sắp xóa dữ liệu chính của tài khoản gồm giao dịch, thông báo, ngân sách và lịch sử ví cá nhân.
+                        Số dư các ví cá nhân cũng sẽ về 0.
+                    </div>
+                    {restoreErrorMessage ? <div style={{ color: '#ef4444', fontSize: 12.5 }}>{restoreErrorMessage}</div> : null}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <button
+                            type="button"
+                            onClick={closeRestoreModal}
+                            disabled={isRestoringAccountData}
+                            style={{
+                                minHeight: 40,
+                                borderRadius: 10,
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-soft)',
+                                color: 'var(--foreground)',
+                                fontWeight: 700,
+                                opacity: isRestoringAccountData ? 0.65 : 1,
+                            }}
+                        >
+                            Hủy
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void handleRestoreAccountData()}
+                            disabled={isRestoringAccountData || restoreCountdown > 0}
+                            style={{
+                                minHeight: 40,
+                                borderRadius: 10,
+                                border: '1px solid color-mix(in srgb, #ef4444 45%, var(--surface-border))',
+                                background: 'color-mix(in srgb, #ef4444 16%, var(--surface-strong))',
+                                color: '#dc2626',
+                                fontWeight: 800,
+                                opacity: isRestoringAccountData || restoreCountdown > 0 ? 0.65 : 1,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 7,
+                            }}
+                        >
+                            {isRestoringAccountData ? <LoaderCircle size={15} className="spin" /> : null}
+                            {isRestoringAccountData
+                                ? 'Đang khôi phục...'
+                                : restoreCountdown > 0
+                                    ? `Xác nhận sau (${restoreCountdown}s)`
+                                    : 'Xác nhận khôi phục'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        ) : null}
         <BottomNav activeTab="none" onSelect={handleNavSelect} />
     </>
     );

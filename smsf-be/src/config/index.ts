@@ -84,7 +84,7 @@ const config = {
         enabled: parseBoolean(process.env.R2_ENABLED, false),
     },
     observability: {
-        logDir: process.env.LOG_DIR || "/var/log/services",
+        logDir: process.env.LOG_DIR || "/logs",
         enableFileLog: parseBoolean(process.env.ENABLE_FILE_LOG, true),
         metrics: {
             pushgateway: {

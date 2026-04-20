@@ -3,7 +3,7 @@ import DailyRotateFile from 'winston-daily-rotate-file';
 import config from '../config';
 
 const { combine, timestamp, printf, splat, json, colorize } = winston.format;
-const DEFAULT_LOKI_LOG_DIR = '/var/log/services/smsf-be';
+const DEFAULT_LOKI_LOG_DIR = 'logs';
 
 const consoleFormat = printf(({ level, message, timestamp, service }) => {
     const serviceTag = service ? `[${service}]` : '';

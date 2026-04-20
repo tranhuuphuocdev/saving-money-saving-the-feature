@@ -116,6 +116,11 @@ export async function uploadProfileAvatarRequest(file: File) {
     return response.data.data;
 }
 
+export async function restoreAccountDataRequest() {
+    const response = await api.post('/auth/profile/restore');
+    return response.data;
+}
+
 export async function logoutRequest(): Promise<void> {
     try {
         await api.post('/auth/logout');

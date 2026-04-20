@@ -869,6 +869,99 @@ const uploadProfileAvatar = async (req: Request, res: Response): Promise<Respons
     }
 };
 
+const restoreAccountData = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    try {
+        const personalWallets = await prisma.userWallet.findMany({
+            where: {
+                userId,
+                role: "owner",
+                wallet: {
+                    type: {
+                        not: "shared-fund",
+                    },
+                },
+            },
+            select: {
+                walletId: true,
+            },
+        });
+
+        const personalWalletIds = personalWallets.map((item) => item.walletId);
+
+        const transactionWhere = { userId };
+        const notificationWhere = { userId };
+        const budgetWhere = { userId };
+
+        const transactionIds = await prisma.transaction.findMany({
+            where: transactionWhere,
+            select: { id: true },
+        });
+        const ownedTransactionIds = transactionIds.map((item) => item.id);
+
+        const walletLogsByWalletWhere = personalWalletIds.length > 0
+            ? { walletId: { in: personalWalletIds } }
+            : undefined;
+
+        const walletLogsByTransactionWhere = ownedTransactionIds.length > 0
+            ? { transactionId: { in: ownedTransactionIds } }
+            : undefined;
+
+        const resetResult = await prisma.$transaction(async (tx) => {
+            const [walletLogsByWalletDelete, walletLogsByTransactionDelete, transactionsDelete, notificationsDelete, budgetsDelete] = await Promise.all([
+                walletLogsByWalletWhere
+                    ? tx.walletLog.deleteMany({ where: walletLogsByWalletWhere })
+                    : Promise.resolve({ count: 0 }),
+                walletLogsByTransactionWhere
+                    ? tx.walletLog.deleteMany({ where: walletLogsByTransactionWhere })
+                    : Promise.resolve({ count: 0 }),
+                tx.transaction.deleteMany({ where: transactionWhere }),
+                tx.notification.deleteMany({ where: notificationWhere }),
+                tx.budget.deleteMany({ where: budgetWhere }),
+            ]);
+
+            const walletResetResult = personalWalletIds.length > 0
+                ? await tx.wallet.updateMany({
+                    where: {
+                        id: {
+                            in: personalWalletIds,
+                        },
+                    },
+                    data: {
+                        amount: 0,
+                        updatedAt: BigInt(Date.now()),
+                    },
+                })
+                : { count: 0 };
+
+            return {
+                deletedTransactions: transactionsDelete.count,
+                deletedNotifications: notificationsDelete.count,
+                deletedBudgets: budgetsDelete.count,
+                deletedWalletLogs: walletLogsByWalletDelete.count + walletLogsByTransactionDelete.count,
+                resetWallets: walletResetResult.count,
+            };
+        });
+
+        return res.json({
+            success: true,
+            message: "Đã khôi phục dữ liệu tài khoản thành công.",
+            data: resetResult,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Failed to restore account data.",
+        });
+    }
+};
+
 export { login, loginWithGoogle, register, getProfile, updateProfile };
 export { refreshToken, logout };
 export { uploadProfileAvatar };
+export { restoreAccountData };
