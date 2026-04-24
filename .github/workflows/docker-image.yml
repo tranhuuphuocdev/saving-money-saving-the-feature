@@ -13,6 +13,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Capture deploy metadata
+        id: deploy_meta
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "deploy_time=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_OUTPUT"
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -34,6 +40,7 @@ jobs:
           ./script/docker/run-build-image.sh
           
       - name: SSH to VPS and Deploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_IP }}
@@ -45,3 +52,40 @@ jobs:
             docker compose pull
             docker compose up -d
             docker image prune -f
+
+      - name: Send Telegram deploy notification
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+          DEPLOY_TIME: ${{ steps.deploy_meta.outputs.deploy_time }}
+          SERVER_HOST: ${{ secrets.VPS_IP }}
+        run: |
+          SHORT_SHA="${COMMIT_SHA::7}"
+          COMMIT_URL="https://github.com/${REPOSITORY}/commit/${COMMIT_SHA}"
+          ESCAPED_MESSAGE=$(printf '%s' "$COMMIT_MESSAGE" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+
+          MESSAGE=$(cat <<EOF
+          ✅ <b>SMSF Deploy Success</b>
+
+          <b>Repository:</b> ${REPOSITORY}
+          <b>Branch:</b> ${BRANCH_NAME}
+          <b>Commit:</b> <a href="${COMMIT_URL}">${SHORT_SHA}</a>
+          <b>Message:</b> ${ESCAPED_MESSAGE}
+          <b>Deployed by:</b> ${ACTOR}
+          <b>Deploy time:</b> ${DEPLOY_TIME}
+          <b>Server:</b> ${SERVER_HOST}
+          EOF
+          )
+
+          curl --fail --silent --show-error \
+            --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "disable_web_page_preview=true"

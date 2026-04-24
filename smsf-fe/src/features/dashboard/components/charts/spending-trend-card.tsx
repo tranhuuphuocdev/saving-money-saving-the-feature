@@ -17,6 +17,7 @@ const PADDING_LEFT = 44;
 const PADDING_RIGHT = 14;
 const PADDING_TOP = 14;
 const PADDING_BOTTOM = 32;
+const SOFT_SCALE_EXPONENT = 0.55;
 
 const safeFormat = (value: number) => {
     return formatCurrencyVND(Math.max(0, Math.round(value)));
@@ -84,6 +85,23 @@ export function SpendingTrendCard({ data, isLoading = false }: ISpendingTrendCar
     const maxValue = Math.max(data.maxValue || 0, 1);
     const drawWidth = CHART_WIDTH - PADDING_LEFT - PADDING_RIGHT;
     const drawHeight = CHART_HEIGHT - PADDING_TOP - PADDING_BOTTOM;
+    const positiveExpenses = visiblePoints
+        .map((point) => point.expense)
+        .filter((expense) => expense > 0)
+        .sort((left, right) => left - right);
+    const upperQuartileExpense =
+        positiveExpenses.length > 0
+            ? positiveExpenses[Math.max(0, Math.floor((positiveExpenses.length - 1) * 0.75))]
+            : 0;
+    const useSoftScale =
+        positiveExpenses.length >= 3
+        && upperQuartileExpense > 0
+        && maxValue / upperQuartileExpense >= 3;
+
+    const normalizeValue = (value: number) => {
+        const boundedRatio = Math.min(Math.max(value, 0), maxValue) / maxValue;
+        return useSoftScale ? Math.pow(boundedRatio, SOFT_SCALE_EXPONENT) : boundedRatio;
+    };
 
     const getX = (day: number) => {
         if (data.daysInMonth <= 1) {
@@ -93,7 +111,7 @@ export function SpendingTrendCard({ data, isLoading = false }: ISpendingTrendCar
     };
 
     const getY = (value: number) => {
-        const normalized = Math.min(Math.max(value, 0), maxValue) / maxValue;
+        const normalized = normalizeValue(value);
         return PADDING_TOP + (1 - normalized) * drawHeight;
     };
 
