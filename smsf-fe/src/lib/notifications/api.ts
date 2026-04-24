@@ -4,6 +4,7 @@ import {
     INotificationItem,
     INotificationPaymentResponse,
     IPayNotificationPayload,
+    IUpdateNotificationPayload,
 } from '@/types/notification';
 
 interface IApiResponse<T> {
@@ -63,6 +64,18 @@ export async function payNotificationRequest(
         ...response.data.data,
         notification: toNotificationItem(response.data.data.notification),
     };
+}
+
+export async function updateNotificationRequest(
+    notificationId: string,
+    payload: IUpdateNotificationPayload,
+): Promise<INotificationItem> {
+    const response = await api.patch<IApiResponse<INotificationApiItem>>(
+        `/notifications/${notificationId}`,
+        payload,
+    );
+
+    return toNotificationItem(response.data.data);
 }
 
 export async function deleteNotificationRequest(notificationId: string): Promise<INotificationItem> {

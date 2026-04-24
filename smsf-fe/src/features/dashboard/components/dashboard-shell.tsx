@@ -27,7 +27,7 @@ import {
     getPendingFriendRequestsRequest,
     rejectFriendRequestRequest,
 } from '@/lib/messages/api';
-import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest } from '@/lib/notifications/api';
+import { createNotificationRequest, deleteNotificationRequest, getNotificationsRequest, payNotificationRequest, updateNotificationRequest } from '@/lib/notifications/api';
 import { getIncomingSharedFundInvitesRequest, acceptSharedFundInviteRequest, rejectSharedFundInviteRequest } from '@/lib/shared-fund/api';
 import {
     offFriendRequestReceived,
@@ -49,7 +49,7 @@ import { useTheme } from '@/providers/theme-provider';
 import { ICalendarTransaction, ICategoryItem } from '@/types/calendar';
 import { IExpenseCategoryItem, ISavingsRateData, ISpendingTrendData, TypeDashboardTab } from '@/types/dashboard';
 import { IConversation, IDirectMessage, IFriendRequest } from '@/types/messages';
-import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem } from '@/types/notification';
+import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem, IUpdateNotificationPayload } from '@/types/notification';
 import { ISharedFundInviteItem } from '@/types/shared-fund';
 
 interface IMonthData {
@@ -539,6 +539,14 @@ export function DashboardShell() {
         [],
     );
 
+    const handleUpdatePaymentNotification = useCallback(
+        async (notificationId: string, payload: IUpdateNotificationPayload) => {
+            await updateNotificationRequest(notificationId, payload);
+            window.dispatchEvent(new CustomEvent('notification:changed'));
+        },
+        [],
+    );
+
     const handleAcceptFriendRequest = useCallback(async (requestId: string) => {
         await acceptFriendRequestRequest(requestId);
         await fetchPendingFriendRequests();
@@ -818,6 +826,7 @@ export function DashboardShell() {
                 onCreateNotification={handleCreatePaymentNotification}
                 onPayNotification={handlePayPaymentNotification}
                 onDeleteNotification={handleDeletePaymentNotification}
+                onUpdateNotification={handleUpdatePaymentNotification}
                 onAcceptFriendRequest={handleAcceptFriendRequest}
                 onRejectFriendRequest={handleRejectFriendRequest}
                 onAcceptSharedFundInvite={handleAcceptSharedFundInvite}

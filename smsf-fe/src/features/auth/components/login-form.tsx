@@ -75,15 +75,18 @@ export function LoginForm() {
         }
 
         let isCancelled = false;
+        let retryTimeout: number | null = null;
+        let hasRendered = false;
+        let scriptLoadHandler: (() => void) | undefined;
 
-        const initGoogleButton = () => {
-            if (isCancelled || !googleButtonRef.current) {
-                return;
+        const initGoogleButton = (): boolean => {
+            if (isCancelled || !googleButtonRef.current || hasRendered) {
+                return false;
             }
 
             const googleApi = (window as IGoogleWindow).google?.accounts?.id;
             if (!googleApi) {
-                return;
+                return false;
             }
 
             googleButtonRef.current.innerHTML = '';
@@ -117,23 +120,56 @@ export function LoginForm() {
                 size: 'large',
                 width: 320,
             });
+
+            hasRendered = true;
+            return true;
+        };
+
+        const scheduleInit = (attempt = 0) => {
+            if (isCancelled || hasRendered) {
+                return;
+            }
+
+            const initialized = initGoogleButton();
+            if (initialized) {
+                return;
+            }
+
+            if (attempt >= 50) {
+                return;
+            }
+
+            retryTimeout = window.setTimeout(() => scheduleInit(attempt + 1), 100);
         };
 
         const existingScript = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
         if (existingScript) {
-            initGoogleButton();
+            scriptLoadHandler = () => scheduleInit(0);
+            existingScript.addEventListener('load', scriptLoadHandler);
+            scheduleInit(0);
         } else {
             const script = document.createElement('script');
             script.src = 'https://accounts.google.com/gsi/client';
             script.async = true;
             script.defer = true;
             script.dataset.googleIdentity = 'true';
-            script.onload = initGoogleButton;
+            script.onload = () => scheduleInit(0);
             document.head.appendChild(script);
+
+            scheduleInit(0);
         }
 
         return () => {
             isCancelled = true;
+
+            if (retryTimeout) {
+                window.clearTimeout(retryTimeout);
+            }
+
+            const currentScript = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
+            if (currentScript && scriptLoadHandler) {
+                currentScript.removeEventListener('load', scriptLoadHandler);
+            }
         };
     }, [loginWithGoogle, router]);
 
@@ -170,12 +206,12 @@ export function LoginForm() {
                             fontWeight: 700,
                         }}
                     >
-                        SMSF / Secure Access
+                        SMSF | Hãy đưa tôi tiền của bạn
                     </div>
                     <h1 style={{ margin: '0 0 8px', fontSize: 26, lineHeight: 1.15 }}>Đăng nhập hệ thống</h1>
-                    <p style={{ margin: '0 0 20px', color: 'var(--muted)', lineHeight: 1.6, fontSize: 14 }}>
+                    {/* <p style={{ margin: '0 0 20px', color: 'var(--muted)', lineHeight: 1.6, fontSize: 14 }}>
                         Giao diện tối ưu smartphone, font gọn hơn, rõ nét hơn và tập trung vào thao tác nhanh.
-                    </p>
+                    </p> */}
 
                     <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 14 }}>
                         <label style={{ display: 'grid', gap: 8 }}>

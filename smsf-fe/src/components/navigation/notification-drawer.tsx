@@ -11,7 +11,7 @@ import { getActiveSortedWallets } from '@/lib/wallet-selection';
 import { useLockBodyScroll } from '@/lib/ui/use-lock-body-scroll';
 import { ICategoryItem, IWalletItem } from '@/types/calendar';
 import { IFriendRequest } from '@/types/messages';
-import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem } from '@/types/notification';
+import { ICreateNotificationPayload, IMessageNotificationItem, INotificationItem, IPayNotificationPayload, ISharedFundActivityNotificationItem, IUpdateNotificationPayload } from '@/types/notification';
 import { ISharedFundInviteItem } from '@/types/shared-fund';
 
 interface INotificationDrawerProps {
@@ -29,6 +29,7 @@ interface INotificationDrawerProps {
     onCreateNotification: (payload: ICreateNotificationPayload) => Promise<void>;
     onPayNotification: (notificationId: string, payload: IPayNotificationPayload) => Promise<void>;
     onDeleteNotification: (notificationId: string) => Promise<void>;
+    onUpdateNotification: (notificationId: string, payload: IUpdateNotificationPayload) => Promise<void>;
     onAcceptFriendRequest: (requestId: string) => Promise<void>;
     onRejectFriendRequest: (requestId: string) => Promise<void>;
     onAcceptSharedFundInvite: (inviteId: string) => Promise<void>;
@@ -104,19 +105,40 @@ function getRemainingDays(timestamp: number): number {
     return Math.ceil((startTarget - startToday) / (24 * 60 * 60 * 1000));
 }
 
+function isNotificationStarted(notification: INotificationItem): boolean {
+    return notification.createdAt <= Date.now();
+}
+
 function getStatusLabel(notification: INotificationItem): string {
+    if (!isNotificationStarted(notification)) {
+        const startDate = new Date(notification.createdAt);
+        return `Bắt đầu từ ${formatMonthYear(startDate.getMonth() + 1, startDate.getFullYear())}`;
+    }
+
     if (
         notification.paymentStatus === 'paid' &&
         notification.paidMonth === notification.currentMonth &&
         notification.paidYear === notification.currentYear
     ) {
-        return `Tháng ${formatMonthYear(notification.currentMonth, notification.currentYear)} đã thanh toán`;
+        return `${formatMonthYear(notification.currentMonth, notification.currentYear)} đã thanh toán`;
     }
 
     return getDueBadgeLabel(getRemainingDays(notification.nextDueAt));
 }
 
 function getNotificationVisualStyle(notification: INotificationItem, remainingDays: number): INotificationVisualStyle {
+    if (!isNotificationStarted(notification)) {
+        return {
+            rowBackground: 'color-mix(in srgb, #3b82f6 10%, var(--surface-soft))',
+            rowBorder: 'color-mix(in srgb, #2563eb 28%, var(--surface-border))',
+            badgeBackground: 'color-mix(in srgb, #2563eb 18%, transparent)',
+            badgeColor: 'var(--bage-color)',
+            amountColor: '#1d4ed8',
+            titleColor: 'color-mix(in srgb, var(--foreground) 90%, #1e3a8a)',
+            iconColor: '#2563eb',
+        };
+    }
+
     if (notification.paymentStatus === 'paid') {
         return {
             rowBackground: 'color-mix(in srgb, #22c55e 14%, var(--surface-soft))',
@@ -203,6 +225,7 @@ export function NotificationDrawer({
     onCreateNotification,
     onPayNotification,
     onDeleteNotification,
+    onUpdateNotification,
     onAcceptFriendRequest,
     onRejectFriendRequest,
     onAcceptSharedFundInvite,
@@ -231,6 +254,7 @@ export function NotificationDrawer({
     const [isPaying, setIsPaying] = useState(false);
     const [isSkipping, setIsSkipping] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isUpdating, setIsUpdating] = useState(false);
     const [deletingNotificationId, setDeletingNotificationId] = useState<string | null>(null);
     const [friendActionLoadingMap, setFriendActionLoadingMap] = useState<Record<string, boolean>>({});
 
@@ -488,6 +512,7 @@ export function NotificationDrawer({
         setPayAmount('');
         setPayError('');
         setIsSkipping(false);
+        setIsUpdating(false);
     };
 
     const submitCreateNotification = async () => {
@@ -565,6 +590,36 @@ export function NotificationDrawer({
         } finally {
             setDeletingNotificationId(null);
             setIsDeleting(false);
+        }
+    };
+
+    const submitUpdateNotification = async () => {
+        if (!selectedNotification) {
+            return;
+        }
+
+        const nextAmount = payDefaultAmount
+            ? parseInt(payDefaultAmount.replace(/\D/g, ''), 10) || 0
+            : selectedNotification.amount;
+
+        if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+            setPayError('Số tiền mặc định phải lớn hơn 0.');
+            return;
+        }
+
+        setPayError('');
+        setIsUpdating(true);
+
+        try {
+            await onUpdateNotification(selectedNotification.id, { amount: nextAmount });
+            closePayModal();
+        } catch (error) {
+            setPayError(
+                (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+                    'Cập nhật nhắc lịch thất bại.',
+            );
+        } finally {
+            setIsUpdating(false);
         }
     };
 
@@ -649,6 +704,12 @@ export function NotificationDrawer({
             setIsSkipping(false);
         }
     };
+
+    const isSelectedNotificationStarted = selectedNotification
+        ? isNotificationStarted(selectedNotification)
+        : true;
+    const isSelectedNotificationPaid = selectedNotification?.paymentStatus === 'paid';
+    const isPaymentActionDisabled = !isSelectedNotificationStarted || isSelectedNotificationPaid;
 
     return (
         <>
@@ -1169,20 +1230,15 @@ export function NotificationDrawer({
 
                         {!isLoading && activeSection === 'reminder'
                             ? sortedNotifications.map((item) => {
-                              const isPaid = item.paymentStatus === 'paid';
                               const remainingDays = getRemainingDays(item.nextDueAt);
-                            const visualStyle = getNotificationVisualStyle(item, remainingDays);
+                                                            const visualStyle = getNotificationVisualStyle(item, remainingDays);
 
                               return (
                                   <div
                                       key={item.id}
-                                      role={isPaid ? undefined : 'button'}
-                                      tabIndex={isPaid ? -1 : 0}
+                                                                            role='button'
+                                                                            tabIndex={0}
                                       onClick={() => {
-                                          if (isPaid) {
-                                              return;
-                                          }
-
                                           setSelectedNotification(item);
                                           setPayWalletId(richestWalletId);
                                           setPayDefaultAmount(String(item.amount));
@@ -1190,10 +1246,6 @@ export function NotificationDrawer({
                                           setPayError('');
                                       }}
                                       onKeyDown={(event) => {
-                                          if (isPaid) {
-                                              return;
-                                          }
-
                                           if (event.key === 'Enter' || event.key === ' ') {
                                               event.preventDefault();
                                               setSelectedNotification(item);
@@ -1214,8 +1266,7 @@ export function NotificationDrawer({
                                           alignItems: 'center',
                                           color: visualStyle.titleColor,
                                           textAlign: 'left',
-                                          opacity: isPaid ? 0.94 : 1,
-                                          cursor: isPaid ? 'not-allowed' : 'pointer',
+                                          cursor: 'pointer',
                                       }}
                                   >
                                       <div style={{ minWidth: 0 }}>
@@ -1519,8 +1570,12 @@ export function NotificationDrawer({
                     <AppCard strong style={{ width: 'min(100%, 380px)', padding: 16, borderRadius: 16, display: 'grid', gap: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                             <div>
-                                <div style={{ fontSize: 15, fontWeight: 900 }}>Xác nhận thanh toán</div>
-                                <div style={{ marginTop: 3, color: 'var(--muted)', fontSize: 12.5 }}>Chọn ví và điều chỉnh số tiền nếu cần.</div>
+                                <div style={{ fontSize: 15, fontWeight: 900 }}>Chi tiết nhắc lịch</div>
+                                <div style={{ marginTop: 3, color: 'var(--muted)', fontSize: 12.5 }}>
+                                    {isPaymentActionDisabled
+                                        ? 'Khoản này chỉ hỗ trợ xoá ở trạng thái hiện tại.'
+                                        : 'Chọn ví và điều chỉnh số tiền nếu cần.'}
+                                </div>
                             </div>
                             <button
                                 type="button"
@@ -1570,6 +1625,14 @@ export function NotificationDrawer({
                         {payError ? (
                             <div style={{ color: '#ef4444', fontSize: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 10, padding: '8px 10px' }}>
                                 {payError}
+                            </div>
+                        ) : null}
+
+                        {isPaymentActionDisabled ? (
+                            <div style={{ color: 'var(--muted)', fontSize: 12, background: 'var(--surface-soft)', border: '1px solid var(--surface-border)', borderRadius: 10, padding: '8px 10px' }}>
+                                {!isSelectedNotificationStarted
+                                    ? 'Nhắc lịch này chưa tới tháng bắt đầu, bạn vẫn có thể xoá.'
+                                    : 'Nhắc lịch tháng hiện tại đã thanh toán, bạn vẫn có thể xoá.'}
                             </div>
                         ) : null}
 
@@ -1626,7 +1689,7 @@ export function NotificationDrawer({
                             <button
                                 type="button"
                                 onClick={() => { void submitDeleteNotification(selectedNotification.id); }}
-                                disabled={isPaying || isSkipping || isDeleting}
+                                disabled={isPaying || isSkipping || isDeleting || isUpdating}
                                 style={{
                                     minHeight: 32,
                                     padding: '0 10px',
@@ -1640,19 +1703,39 @@ export function NotificationDrawer({
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     gap: 5,
-                                    cursor: isDeleting || isPaying || isSkipping ? 'not-allowed' : 'pointer',
-                                    opacity: isDeleting || isPaying || isSkipping ? 0.65 : 1,
+                                    cursor: isDeleting || isPaying || isSkipping || isUpdating ? 'not-allowed' : 'pointer',
+                                    opacity: isDeleting || isPaying || isSkipping || isUpdating ? 0.65 : 1,
                                     transition: 'opacity 150ms ease',
                                 }}
                             >
                                 <Trash2 size={13} />
                                 {isDeleting ? 'Đang xoá...' : 'Xoá'}
                             </button>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                                <button
+                                    type="button"
+                                    onClick={() => { void submitUpdateNotification(); }}
+                                    disabled={isPaying || isSkipping || isDeleting || isUpdating}
+                                    style={{
+                                        minHeight: 32,
+                                        padding: '0 10px',
+                                        borderRadius: 9,
+                                        border: '1px solid color-mix(in srgb, #3b82f6 44%, var(--surface-border))',
+                                        background: 'color-mix(in srgb, #3b82f6 9%, var(--surface-soft))',
+                                        color: '#1d4ed8',
+                                        fontWeight: 700,
+                                        fontSize: 11,
+                                        cursor: isPaying || isSkipping || isDeleting || isUpdating ? 'not-allowed' : 'pointer',
+                                        opacity: isPaying || isSkipping || isDeleting || isUpdating ? 0.65 : 1,
+                                        transition: 'opacity 150ms ease',
+                                    }}
+                                >
+                                    {isUpdating ? 'Đang lưu...' : 'Lưu sửa'}
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => { void submitSkipNotification(); }}
-                                    disabled={isPaying || isSkipping || isDeleting}
+                                    disabled={isPaymentActionDisabled || isPaying || isSkipping || isDeleting || isUpdating}
                                     style={{
                                         minHeight: 32,
                                         padding: '0 10px',
@@ -1662,19 +1745,19 @@ export function NotificationDrawer({
                                         color: '#b45309',
                                         fontWeight: 700,
                                         fontSize: 11,
-                                        cursor: isPaying || isSkipping || isDeleting ? 'not-allowed' : 'pointer',
-                                        opacity: isPaying || isSkipping || isDeleting ? 0.65 : 1,
+                                        cursor: isPaymentActionDisabled || isPaying || isSkipping || isDeleting || isUpdating ? 'not-allowed' : 'pointer',
+                                        opacity: isPaymentActionDisabled || isPaying || isSkipping || isDeleting || isUpdating ? 0.65 : 1,
                                         transition: 'opacity 150ms ease',
                                     }}
                                 >
-                                    {isSkipping ? 'Đang bỏ qua...' : 'Bỏ qua tháng này'}
+                                    {isSkipping ? 'Đang bỏ qua...' : 'Bỏ qua'}
                                 </button>
                                 <PrimaryButton
                                     onClick={submitPayNotification}
-                                    disabled={isPaying || isSkipping || isDeleting}
+                                    disabled={isPaymentActionDisabled || isPaying || isSkipping || isDeleting || isUpdating}
                                     style={{ justifyContent: 'center', minHeight: 32, fontSize: 11.5, gap: 5 }}
                                 >
-                                    {isPaying ? <span>Đang thanh toán...</span> : <><CheckCircle2 size={13} /> Đã thanh toán</>}
+                                    {isPaying ? <span>Đang thanh toán...</span> : <><CheckCircle2 size={13} /> Trả</>}
                                 </PrimaryButton>
                             </div>
                         </div>

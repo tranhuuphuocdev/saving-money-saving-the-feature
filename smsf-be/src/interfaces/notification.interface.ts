@@ -40,3 +40,7 @@ export interface IPayNotificationPayload {
     defaultAmount?: number;
     skipTransaction?: boolean;
 }
+
+export interface IUpdateNotificationPayload {
+    amount: number;
+}

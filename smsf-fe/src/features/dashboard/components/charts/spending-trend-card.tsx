@@ -97,11 +97,8 @@ export function SpendingTrendCard({ data, isLoading = false }: ISpendingTrendCar
         return PADDING_TOP + (1 - normalized) * drawHeight;
     };
 
-    const pointsForLine = visiblePoints
-        .map((point) => `${getX(point.day)},${getY(point.expense)}`)
-        .join(' ');
-
     const averageY = getY(data.averageDailyBudget);
+    const barWidth = Math.max((drawWidth / Math.max(data.daysInMonth, 1)) * 0.68, 4);
 
     const yAxisTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
         const value = maxValue * ratio;
@@ -206,23 +203,24 @@ export function SpendingTrendCard({ data, isLoading = false }: ISpendingTrendCar
                         style={{ cursor: 'pointer' }}
                     />
 
-                    <polyline
-                        points={pointsForLine}
-                        fill="none"
-                        stroke="#22c55e"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    />
+                    {visiblePoints.map((point) => {
+                        const x = getX(point.day);
+                        const y = getY(point.expense);
+                        const barHeight = Math.max(1, CHART_HEIGHT - PADDING_BOTTOM - y);
+                        const barX = x - barWidth / 2;
+                        const isActive = point.day === latestPoint?.day || point.day === activeDay;
 
-                    {visiblePoints
-                        .map((point) => (
-                            <circle
-                                key={`pt-${point.day}`}
-                                cx={getX(point.day)}
-                                cy={getY(point.expense)}
-                                r={point.day === latestPoint?.day || point.day === activeDay ? 4.5 : 2.6}
-                                fill={point.day === latestPoint?.day || point.day === activeDay ? '#16a34a' : '#22c55e'}
+                        return (
+                            <rect
+                                key={`bar-${point.day}`}
+                                x={barX}
+                                y={y}
+                                width={barWidth}
+                                height={barHeight}
+                                fill={isActive ? '#16a34a' : '#22c55e'}
+                                rx="2"
+                                ry="2"
+                                opacity={isActive ? 1 : 0.85}
                                 onMouseEnter={() => {
                                     setHoveredDay(point.day);
                                     setIsAverageHovered(false);
@@ -231,9 +229,10 @@ export function SpendingTrendCard({ data, isLoading = false }: ISpendingTrendCar
                                     setPinnedDay((currentDay) => (currentDay === point.day ? null : point.day));
                                     setIsAveragePinned(false);
                                 }}
-                                style={{ cursor: 'pointer' }}
+                                style={{ cursor: 'pointer', transition: 'opacity 120ms ease' }}
                             />
-                        ))}
+                        );
+                    })}
 
                     {activePoint ? (
                         <line

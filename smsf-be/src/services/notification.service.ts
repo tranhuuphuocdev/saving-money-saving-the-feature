@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
     ICreateNotificationPayload,
     INotification,
+    IUpdateNotificationPayload,
     TypeNotificationPaymentStatus,
 } from "../interfaces/notification.interface";
 import {
@@ -237,7 +238,7 @@ const listCurrentNotificationsByUser = async (
     );
 
     return sortNotifications(
-        synced.filter((item) => !item.isDeleted && hasNotificationStarted(item, now)),
+        synced.filter((item) => !item.isDeleted),
     );
 };
 
@@ -295,6 +296,26 @@ const deleteNotificationForUser = async (
     return saveNotification({
         ...existing,
         isDeleted: true,
+        updatedAt: Date.now(),
+    });
+};
+
+const updateNotificationForUser = async (
+    userId: string,
+    notificationId: string,
+    payload: IUpdateNotificationPayload,
+): Promise<INotification> => {
+    const existing = await getNotificationById(userId, notificationId);
+
+    if (!existing) {
+        const error = new Error("Notification not found.");
+        (error as Error & { statusCode?: number }).statusCode = 404;
+        throw error;
+    }
+
+    return saveNotification({
+        ...existing,
+        amount: payload.amount,
         updatedAt: Date.now(),
     });
 };
@@ -457,4 +478,5 @@ export {
     listCurrentNotificationsByUser,
     payNotificationForUser,
     syncNotificationStatusesAndSendReminders,
+    updateNotificationForUser,
 };

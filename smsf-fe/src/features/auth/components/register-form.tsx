@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, LoaderCircle, LockKeyhole, MessageCircle, UserRound } from 'lucide-react';
+import { ArrowRight, LoaderCircle, LockKeyhole, UserRound } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppCard } from '@/components/common/app-card';
@@ -14,9 +14,10 @@ export function RegisterForm() {
 
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [telegramChatId, setTelegramChatId] = useState('');
+    // Removed telegramChatId state
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [confirmPassword, setConfirmPassword] = useState('');
 
     useEffect(() => {
         if (!isLoading && isAuthenticated) {
@@ -30,7 +31,12 @@ export function RegisterForm() {
         setSubmitting(true);
 
         try {
-            await register(username.trim(), password, telegramChatId.trim() || undefined);
+                if (password !== confirmPassword) {
+                    setError('Mật khẩu xác nhận không khớp.');
+                    setSubmitting(false);
+                    return;
+                }
+            await register(username.trim(), password);
             router.replace('/dashboard');
         } catch (submitError) {
             const message =
@@ -66,9 +72,9 @@ export function RegisterForm() {
                         SMSF / Register
                     </div>
                     <h1 style={{ margin: '12px 0 8px', fontSize: 26, lineHeight: 1.15 }}>Tạo tài khoản mới</h1>
-                    <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.6, fontSize: 14 }}>
+                    {/* <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.6, fontSize: 14 }}>
                         Sau khi đăng ký, bạn sẽ cần nhập số tiền khởi tạo cho 3 ví mặc định: Tiền mặt, Ngân hàng, Momo.
-                    </p>
+                    </p> */}
                 </div>
 
                 <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 14 }}>
@@ -100,17 +106,19 @@ export function RegisterForm() {
                     </label>
 
                     <label style={{ display: 'grid', gap: 8 }}>
-                        <span style={{ fontSize: 13, color: 'var(--foreground)' }}>Telegram chat id (tuỳ chọn)</span>
+                        <span style={{ fontSize: 13, color: 'var(--foreground)' }}>Xác nhận mật khẩu</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderRadius: 16, padding: '13px 14px', background: 'var(--surface-soft)', border: '1px solid var(--theme-icon-border)' }}>
-                            <MessageCircle size={17} color="var(--accent)" />
+                            <LockKeyhole size={17} color="var(--accent)" />
                             <input
-                                value={telegramChatId}
-                                onChange={(event) => setTelegramChatId(event.target.value)}
-                                placeholder="Ví dụ: 123456789 hoặc -1001234567890"
+                                type="password"
+                                value={confirmPassword}
+                                onChange={(event) => setConfirmPassword(event.target.value)}
+                                placeholder="Nhập lại mật khẩu"
                                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'var(--foreground)', fontSize: 14 }}
                             />
                         </div>
                     </label>
+
 
                     {error ? (
                         <div style={{ borderRadius: 14, padding: '11px 13px', background: 'rgba(239, 68, 68, 0.12)', color: '#fecaca', border: '1px solid rgba(248,113,113,0.2)', fontSize: 13 }}>

@@ -5,10 +5,12 @@ import {
     deleteNotificationForUser,
     listCurrentNotificationsByUser,
     payNotificationForUser,
+    updateNotificationForUser,
 } from "../services/notification.service";
 import {
     validateCreateNotificationPayload,
     validatePayNotificationPayload,
+    validateUpdateNotificationPayload,
 } from "../validators/notification.validator";
 import { invalidateSavingsCacheByUser } from "../lib/savings-cache";
 
@@ -143,4 +145,41 @@ const deleteNotification = async (req: Request, res: Response): Promise<Response
     }
 };
 
-export { listNotifications, createNotification, payNotification, deleteNotification };
+const updateNotification = async (req: Request, res: Response): Promise<Response> => {
+    const userId = String(req.user?.id || "").trim();
+    const notificationId = String(req.params.notificationId || "").trim();
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    if (!notificationId) {
+        return res.status(400).json({ success: false, message: "notificationId is required." });
+    }
+
+    const validation = validateUpdateNotificationPayload(req.body);
+    if (!validation.isValid || !validation.payload) {
+        return res.status(400).json({
+            success: false,
+            message: "Validation failed.",
+            errors: validation.errors,
+        });
+    }
+
+    try {
+        const notification = await updateNotificationForUser(userId, notificationId, validation.payload);
+        return res.json({
+            success: true,
+            message: "Notification updated successfully.",
+            data: notification,
+        });
+    } catch (error) {
+        const statusCode = (error as Error & { statusCode?: number }).statusCode || 500;
+        return res.status(statusCode).json({
+            success: false,
+            message: (error as Error).message,
+        });
+    }
+};
+
+export { listNotifications, createNotification, payNotification, deleteNotification, updateNotification };

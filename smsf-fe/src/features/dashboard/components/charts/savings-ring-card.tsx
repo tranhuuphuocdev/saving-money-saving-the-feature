@@ -38,13 +38,14 @@ export function SavingsRingCard({ monthLabel, categories, activeCategoryId, onAc
                     marginTop: 12,
                     display: 'grid',
                     gap: 6,
-                    height: 230,
+                    gridAutoRows: '28px',
+                    maxHeight: 230,
                     overflowY: 'auto',
                     paddingRight: 4,
                 }}
             >
                 {sortedCategories.length === 0 ? (
-                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có dữ liệu chi tiêu theo danh mục.</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>Chưa có dữ liệu.</div>
                 ) : null}
 
                 {sortedCategories.map((item) => (
@@ -64,7 +65,7 @@ export function SavingsRingCard({ monthLabel, categories, activeCategoryId, onAc
                             gridTemplateColumns: '1fr auto',
                             gap: 8,
                             alignItems: 'center',
-                            minHeight: 28,
+                            height: 28,
                             cursor: 'pointer',
                             transform: activeCategoryId === item.id ? 'translateY(-1px)' : 'translateY(0)',
                             boxShadow: activeCategoryId === item.id ? '0 4px 14px color-mix(in srgb, var(--accent) 16%, transparent)' : 'none',

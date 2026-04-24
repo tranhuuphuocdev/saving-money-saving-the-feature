@@ -41,6 +41,10 @@ export interface IPayNotificationPayload {
     skipTransaction?: boolean;
 }
 
+export interface IUpdateNotificationPayload {
+    amount: number;
+}
+
 export interface INotificationPaymentResponse extends IWalletSummary {
     notification: INotificationItem;
     transactionId?: string;

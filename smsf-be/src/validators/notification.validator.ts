@@ -1,6 +1,7 @@
 import {
     ICreateNotificationPayload,
     IPayNotificationPayload,
+    IUpdateNotificationPayload,
 } from "../interfaces/notification.interface";
 
 interface IValidationResult<T> {
@@ -201,4 +202,31 @@ const validatePayNotificationPayload = (
     };
 };
 
-export { validateCreateNotificationPayload, validatePayNotificationPayload };
+const validateUpdateNotificationPayload = (
+    input: unknown,
+): IValidationResult<IUpdateNotificationPayload> => {
+    if (!input || typeof input !== "object") {
+        return {
+            isValid: false,
+            errors: ["Request body is required."],
+        };
+    }
+
+    const body = input as Record<string, unknown>;
+    const amount = toPositiveNumber(body.amount);
+
+    if (!amount) {
+        return {
+            isValid: false,
+            errors: ["amount must be a positive number."],
+        };
+    }
+
+    return {
+        isValid: true,
+        errors: [],
+        payload: { amount },
+    };
+};
+
+export { validateCreateNotificationPayload, validatePayNotificationPayload, validateUpdateNotificationPayload };
